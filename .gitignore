@@ -60,3 +60,11 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
+
+# Local demo runtime
+__pycache__/
+*.pyc
+backend/*.sqlite3
+backend/*.sqlite3-*
+DerivedData/
+*.xcresult/
