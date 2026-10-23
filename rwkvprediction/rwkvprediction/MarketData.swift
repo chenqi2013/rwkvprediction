@@ -74,9 +74,15 @@ struct MarketSnapshot: Codable {
     let asset: MarketAsset
     let asOf: String
     let source: String
+    let marketVendor: String?
     let model: String
     let history: [HistoryPoint]
     let predictions: [String: Forecast]
+    var isLive: Bool { source == "akshare" }
+    var marketSourceLabel: String { isLive ? "AKShare · 日线收盘" : "模拟行情 · 离线演示" }
+    var sourceDescription: String {
+        isLive ? "行情与历史价格来自 AKShare\(marketVendor == "sina" ? "（新浪备用源，指数成交额暂无）" : "")，采用最近完整交易日收盘数据。预测、解读及回测为模拟，尚未接入 RWKV。" : "当前为离线演示，行情、预测和回测均为模拟数据。"
+    }
 }
 struct DemoPayload: Codable {
     let assets: [MarketAsset]
@@ -102,6 +108,8 @@ struct DeliveredForecast: Codable {
     let currency: String
     let decimals: Int
     let explanation: String
+    let marketSource: String?
+    let asOf: String?
     func formatted(_ value: Double) -> String { String(format: "%.*f", decimals, value) }
     init(forecast: Forecast, asset: MarketAsset, confidence: Int) {
         horizon = forecast.horizon
@@ -112,6 +120,8 @@ struct DeliveredForecast: Codable {
         currency = asset.currency
         decimals = asset.decimals
         explanation = forecast.explanation
+        marketSource = "mock"
+        asOf = nil
     }
 }
 
@@ -148,8 +158,15 @@ struct DemoMarketService: MarketDataService {
 struct HTTPMarketService: MarketDataService {
     let baseURL: URL
     private func get<T: Decodable>(_ path: String) async throws -> T {
-        let (data, response) = try await URLSession.shared.data(from: baseURL.appending(path: path))
-        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
+        let endpoint = baseURL.appending(path: path)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(from: endpoint)
+        } catch {
+            throw MarketServiceError(error: error, endpoint: endpoint)
+        }
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw MarketServiceError(data: data) }
         return try MarketJSON.decoder.decode(T.self, from: data)
     }
     func assets() async throws -> [MarketAsset] { try await get("v1/assets") }
@@ -161,9 +178,34 @@ struct HTTPMarketService: MarketDataService {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: ["prediction_id": forecast.id, "symbol": asset.symbol, "confidence": confidence, "channel": channel])
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard (response as? HTTPURLResponse)?.statusCode == 201 else { throw URLError(.badServerResponse) }
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            throw MarketServiceError(error: error, endpoint: request.url ?? baseURL)
+        }
+        guard (response as? HTTPURLResponse)?.statusCode == 201 else { throw MarketServiceError(data: data) }
         return try MarketJSON.decoder.decode(DeliveryReceipt.self, from: data)
+    }
+}
+
+struct MarketServiceError: LocalizedError {
+    let errorDescription: String?
+    init(data: Data) {
+        errorDescription = (try? JSONSerialization.jsonObject(with: data) as? [String: String])?["error"] ?? "行情服务返回异常，请稍后重试。"
+    }
+    init(error: Error, endpoint: URL) {
+        let urlError = error as? URLError
+        if urlError?.code == .cannotConnectToHost || urlError?.code == .cannotFindHost || urlError?.code == .timedOut {
+            errorDescription = "无法连接行情服务：\(endpoint.absoluteString)。iPhone 真机请设置电脑的局域网 IP，并确认后端使用 --host 0.0.0.0 启动。"
+        } else if urlError?.code == .notConnectedToInternet {
+            errorDescription = "无法访问行情服务：\(endpoint.absoluteString)。请确认手机与电脑连接同一 Wi‑Fi，并在系统设置中允许知势访问本地网络。"
+        } else if urlError?.code == .appTransportSecurityRequiresSecureConnection {
+            errorDescription = "系统阻止访问 \(endpoint.absoluteString)，请使用 HTTPS 服务，或局域网开发地址。"
+        } else {
+            errorDescription = "行情服务连接失败（\(endpoint.host ?? endpoint.absoluteString)）：\(error.localizedDescription)"
+        }
     }
 }
 
@@ -187,18 +229,39 @@ final class MarketViewModel {
     var deliveries: [DeliveryReceipt] = []
     var favorites: Set<String> = []
     private var generation = 0
-    private let service: any MarketDataService
+    private var service: any MarketDataService
+    private(set) var apiBaseURL: String
     var forecast: Forecast? { snapshot?.predictions[String(horizon)] }
     var isFavorite: Bool { favorites.contains(snapshot?.asset.symbol ?? selectedSymbol) }
 
     init() {
-        if let value = ProcessInfo.processInfo.environment["RWKV_API_BASE_URL"], let url = URL(string: value) {
-            service = HTTPMarketService(baseURL: url)
-        } else { service = DemoMarketService() }
+        let environment = ProcessInfo.processInfo.environment
+        let value = environment["RWKV_API_BASE_URL"] ?? UserDefaults.standard.string(forKey: "apiBaseURL") ?? "http://127.0.0.1:8787"
+        apiBaseURL = value
+        if environment["RWKV_DATA_MODE"] == "demo" {
+            service = DemoMarketService()
+        } else {
+            service = HTTPMarketService(baseURL: URL(string: value) ?? URL(string: "http://127.0.0.1:8787")!)
+        }
         favorites = Set(UserDefaults.standard.stringArray(forKey: "favorites") ?? [])
         if let data = UserDefaults.standard.data(forKey: "deliveries"), let saved = try? JSONDecoder().decode([DeliveryReceipt].self, from: data) {
             deliveries = saved
         }
+    }
+    func configureService(_ address: String) async -> Bool {
+        let value = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: value), ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+              url.host?.isEmpty == false, url.user == nil, url.password == nil, url.query == nil, url.fragment == nil else {
+            errorMessage = "请输入有效的 HTTP 或 HTTPS 服务地址，例如 http://192.168.1.23:8787。"
+            return false
+        }
+        apiBaseURL = url.absoluteString
+        UserDefaults.standard.set(apiBaseURL, forKey: "apiBaseURL")
+        service = HTTPMarketService(baseURL: url)
+        snapshot = nil
+        assets = []
+        await load()
+        return true
     }
     func load() async {
         generation += 1
@@ -207,16 +270,18 @@ final class MarketViewModel {
         errorMessage = nil
         defer { if current == generation { loading = false } }
         do {
-            if assets.isEmpty { assets = try await service.assets() }
+            let updatedAssets = try await service.assets()
             let result = try await service.snapshot(symbol: selectedSymbol, horizon: horizon)
             guard current == generation else { return }
             guard result.asset.symbol == selectedSymbol, !result.history.isEmpty, [5, 20, 60].allSatisfy({ result.predictions[String($0)]?.points.isEmpty == false }) else {
                 throw CocoaError(.coderInvalidValue)
             }
             snapshot = result
+            assets = updatedAssets
         } catch {
             guard current == generation else { return }
-            errorMessage = "数据加载失败，请检查服务连接后重试。"
+            if snapshot?.asset.symbol != selectedSymbol { snapshot = nil }
+            errorMessage = (error as? MarketServiceError)?.errorDescription ?? "行情加载失败，请确认 AKShare 后端已启动并检查网络后重试。"
         }
     }
     func toggleFavorite() {

@@ -1,24 +1,26 @@
 # 市场预测 API · v1
 
-基础地址示例：`http://127.0.0.1:8787`。JSON 使用 `snake_case`，价格为 CNY；日期为 `YYYY-MM-DD`，更新时间为带时区的 ISO 8601。
+基础地址：模拟器使用 `http://127.0.0.1:8787`，iPhone 真机使用电脑局域网地址，例如 `http://192.168.1.23:8787`。JSON 使用 `snake_case`，价格为 CNY；日期为 `YYYY-MM-DD`，更新时间为带时区的 ISO 8601。
 
-此服务用于产品联调，所有行情与预测均为可重复生成的模拟值。运行 `python3 backend/generate_fixtures.py` 可以重新生成客户端与服务器共享的数据文件。
+默认模式为真实 AKShare 行情 + 模拟预测。先安装 `requirements.txt`，再运行 `python3 backend/server.py`。`--mode demo` 才使用纯模拟行情。运行 `python3 backend/generate_fixtures.py` 可重新生成离线演示样例，不会覆盖真实行情。
 
 ## 端点
 
 | 方法 | 路径 | 返回 |
 | --- | --- | --- |
-| GET | `/health` | `{"status":"ok","mode":"mock"}` |
+| GET | `/health` | `{"status":"ok","mode":"live","market_source":"akshare","forecast_source":"mock"}` |
 | GET | `/v1/assets` | 可搜索的 ETF／指数数组 |
 | GET | `/v1/markets/{symbol}` | 报价、历史价格、三个周期的完整预测 |
 | POST | `/v1/deliveries` | 创建演示下发，201 + 持久化回执 |
 | GET | `/v1/deliveries` | 当前服务器保存的下发回执，最新在前 |
 
-未找到的标的／路径返回 404。下发参数错误返回 400，空请求或请求体大于 16KB 返回 413。错误格式：`{"error":"描述"}`。当前无认证，默认绑定 `127.0.0.1`，仅用于本地演示。
+未找到的标的／路径返回 404。AKShare 上游失败或返回非法日线时返回 502，不自动降级成模拟行情。健康端点仅确认进程运行和模式，不代表上游可用。下发参数错误返回 400，空请求或请求体大于 16KB 返回 413。错误格式：`{"error":"描述"}`。当前无认证，默认绑定 `0.0.0.0` 支持局域网真机联调；仅在受信任网络中运行，仅需本机访问时可指定 `--host 127.0.0.1`。
+
+行情使用最近 61 根完整、不复权日线。北京时间 15:10 前过滤当日日线，防止把盘中数据当作收盘；报价采用最后一根日线，涨跌幅对比前一根收盘，开高低和成交额来自同一根。每标的缓存 300 秒，到期后下一次请求重新获取。默认优先使用东方财富接口；其连接被临时断开时，自动使用 AKShare 新浪历史接口作为备用源。新浪指数接口不提供成交额时返回 `--`，不填造数据；两个数据源都失败才返回 502。
 
 ## 标的与行情
 
-`GET /v1/assets` 返回数组，单条示例：
+`GET /v1/assets` 返回 5 个精选标的的收盘报价数组。以下为结构示例，数值不是当前实时行情：
 
 ```json
 {
@@ -45,8 +47,11 @@
 {
   asset: 上述报价对象,
   as_of: "2026-10-22T15:00:00+08:00",
-  source: "mock",
-  model: "RWKV · Demo",
+  source: "akshare",
+  model: "RWKV · Mock",
+  fetched_at: "2026-10-23T14:00:00+08:00",
+  market_status: "daily_close",
+  price_adjustment: "none",
   history: [{ date, close, volume }, ...],
   predictions: {
     "5":  Forecast,
@@ -56,13 +61,15 @@
 }
 ```
 
-本版本一次获取所有周期，切换周期无需再次网络请求。历史最后一个点是当前报价对应日期，预测从下一演示交易日开始；演示交易日仅跳过周末。真实数据需统一交易所日历、复权方法、时区和停牌处理。
+`source` 仅表示行情来源，`akshare` 表示真实行情，`mock` 表示显式演示模式。无论行情模式如何，当前预测均为模拟。`as_of` 是收盘数据日期，`fetched_at` 是后端获取时间，不表示实时行情时间。演示响应不包含后三个新增元数据字段。
+
+一次获取所有预测周期，切换周期无需再次网络请求。历史最后一个点的收盘价与报价完全一致，模拟预测以该价格为锚点，从下一演示交易日开始；未来日期仅跳过周末，仍需接入交易所节假日日历。真实行情日期不使用模拟交易日生成。
 
 ## Forecast 对象
 
 ```text
 {
-  id: "demo-510300-20-20261022",
+  id: "mock-akshare-510300-20-<行情内容摘要>",
   horizon: 20,
   points: [{
     date: "2026-10-23",
@@ -111,20 +118,20 @@
 ```json
 {
   "symbol": "510300",
-  "prediction_id": "demo-510300-20-20261022",
+  "prediction_id": "请替换成最近获取的 predictions[周期].id",
   "confidence": 95,
   "channel": "in_app"
 }
 ```
 
-`confidence` 为 80 或 95，省略时默认 80。`channel` 为 `in_app` 或 `webhook_demo`。服务器校验预测属于指定标的，并保存所选区间，避免回看时随页面切换而变化。
+`confidence` 为 80 或 95，省略时默认 80。`channel` 为 `in_app` 或 `webhook_demo`。客户端须先 GET 市场快照并使用其实际预测 ID；真实行情模式不接受离线模拟 ID。服务器将已经返回的预测保存在 SQLite，行情刷新后旧 ID 仍对应原来的行情与预测，避免内容漂移。
 
 回执：
 
 ```json
 {
   "id": "uuid",
-  "prediction_id": "demo-510300-20-20261022",
+  "prediction_id": "mock-akshare-510300-20-<行情内容摘要>",
   "symbol": "510300",
   "asset_name": "沪深300ETF",
   "channel": "in_app",
@@ -138,7 +145,9 @@
     "upper": 5.0059,
     "currency": "CNY",
     "decimals": 3,
-    "explanation": "当时的预测解读"
+    "explanation": "当时的模拟预测解读",
+    "market_source": "akshare",
+    "as_of": "2026-10-22T15:00:00+08:00"
   }
 }
 ```
@@ -151,9 +160,9 @@
 
 ## AKShare 接入位置
 
-`akshare_adapter.py` 提供可选的历史数据标准化与实时接口入口。它不参与当前模拟服务，也不输出任何预测。
+`akshare_adapter.py` 已参与默认服务：ETF 优先使用 `fund_etf_hist_em(adjust="")`，指数优先使用 `stock_zh_index_daily_em`；失败后分别尝试 `fund_etf_hist_sina`／`stock_zh_index_daily`。快照的 `market_vendor` 为 `eastmoney` 或 `sina`，只表示 AKShare 上游行情来源，不输出任何预测。
 
 - [ETF 行情与历史接口文档](https://akshare.akfamily.xyz/data/fund/fund_public.html)
 - [指数行情与历史接口文档](https://akshare.akfamily.xyz/data/index/index.html)
 
-真实接入时，将适配后的历史数据交给 RWKV 推理服务，再映射为上述分位数契约；不要将 AKShare 的行情接口视作预测接口。
+后续将适配后的历史数据交给 RWKV 推理服务，替换当前按真实收盘价缩放的模拟分位数与模拟解读即可。

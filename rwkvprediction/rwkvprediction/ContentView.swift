@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct ContentView: View {
+    @Environment(\.openURL) private var openURL
+    @AppStorage("darkModeEnabled") private var darkModeEnabled = true
     @State private var model = MarketViewModel()
     @State private var activeTab = "AI 预测"
     @State private var bottomTab = "预测"
@@ -9,6 +11,8 @@ struct ContentView: View {
     @State private var showMethod = false
     @State private var showHistory = false
     @State private var showCost = false
+    @State private var showConnection = false
+    @State private var serviceAddress = ""
     @State private var toast: String?
     private let sections = ["行情", "AI 预测", "市场解读"]
 
@@ -18,7 +22,7 @@ struct ContentView: View {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 0) {
                     if let snapshot = model.snapshot, let forecast = model.forecast {
-                        quote(snapshot.asset, asOf: snapshot.asOf)
+                        quote(snapshot)
                         sectionTabs
                         VStack(spacing: 14) {
                             if activeTab == "行情" {
@@ -40,6 +44,7 @@ struct ContentView: View {
                     } else if !model.loading {
                         ContentUnavailableView("暂时无法加载行情", systemImage: "wifi.exclamationmark", description: Text(model.errorMessage ?? "请稍后重试"))
                         Button("重新加载") { Task { await model.load() } }.tint(Design.orange)
+                        Button("设置行情服务地址") { openConnection() }.tint(Design.orange).padding(.top, 12)
                     } else {
                         ProgressView("正在加载市场数据…").tint(Design.orange).padding(.top, 150)
                     }
@@ -50,7 +55,6 @@ struct ContentView: View {
         }
         .background(Design.canvas)
         .foregroundStyle(Design.ink)
-        .preferredColorScheme(.light)
         .task { await model.load() }
         .onChange(of: model.selectedSymbol) { _, _ in Task { await model.load() } }
         .sheet(isPresented: $showAssets, onDismiss: { bottomTab = "预测" }) { AssetPicker(model: model, favoritesOnly: bottomTab == "自选") }
@@ -58,10 +62,11 @@ struct ContentView: View {
         .sheet(isPresented: $showMethod) { methodSheet }
         .sheet(isPresented: $showHistory) { DeliveryHistory(model: model) }
         .sheet(isPresented: $showCost) { CostSheet(usage: model.forecast?.usage) }
+        .sheet(isPresented: $showConnection) { connectionSheet }
         .overlay(alignment: .top) {
             if let toast {
                 Text(toast).font(.system(size: 13, weight: .medium)).padding(.horizontal, 18).padding(.vertical, 12)
-                    .background(Design.ink, in: Capsule()).foregroundStyle(.white).padding(.top, 60)
+                    .background(Design.action, in: Capsule()).foregroundStyle(Design.onAction).padding(.top, 60)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
@@ -71,17 +76,20 @@ struct ContentView: View {
                     .font(.caption).padding(12).background(Design.orangeSoft).padding(.top, 58)
             }
         }
+        .preferredColorScheme(darkModeEnabled ? .dark : .light)
     }
 
     private var navigation: some View {
         HStack(spacing: 10) {
             Image(systemName: "waveform.path")
-                .font(.system(size: 19, weight: .bold)).foregroundStyle(.white)
-                .frame(width: 33, height: 33).background(Design.ink, in: RoundedRectangle(cornerRadius: 10))
+                .font(.system(size: 19, weight: .bold)).foregroundStyle(Design.onAction)
+                .frame(width: 33, height: 33).background(Design.action, in: RoundedRectangle(cornerRadius: 10))
             Text("知势").font(.system(size: 23, weight: .bold))
             Text("RWKV").font(.system(size: 10, weight: .bold, design: .monospaced))
                 .tracking(1).foregroundStyle(Design.secondary).padding(.top, 6)
             Spacer()
+            Button { openConnection() } label: { Image(systemName: "gearshape").font(.system(size: 19)) }
+                .accessibilityLabel("设置行情服务地址").frame(width: 32, height: 40)
             Button { showHistory = true } label: {
                 Image(systemName: "tray").font(.system(size: 20)).overlay(alignment: .topTrailing) {
                     if !model.deliveries.isEmpty { Circle().fill(Design.orange).frame(width: 6, height: 6).offset(x: 3, y: -2) }
@@ -90,11 +98,56 @@ struct ContentView: View {
             Button { showAssets = true } label: { Image(systemName: "magnifyingglass").font(.system(size: 21)) }
                 .accessibilityLabel("搜索 ETF 和指数").frame(width: 32, height: 40)
         }
-        .padding(.horizontal, 20).padding(.vertical, 9).background(.white)
+        .padding(.horizontal, 20).padding(.vertical, 9).background(Design.surface)
     }
 
-    private func quote(_ asset: MarketAsset, asOf: String) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
+    private func openConnection() {
+        serviceAddress = model.apiBaseURL
+        showConnection = true
+    }
+
+    private var connectionSheet: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Toggle(isOn: $darkModeEnabled) {
+                        Label("暗色模式", systemImage: "moon.fill")
+                    }
+                    .tint(Design.orange)
+                    .accessibilityIdentifier("dark-mode-toggle")
+                } header: {
+                    Text("外观")
+                } footer: {
+                    Text("默认使用暗色模式，切换后自动保存。")
+                }
+                Section("行情服务地址") {
+                    TextField("http://192.168.1.23:8787", text: $serviceAddress)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
+                        .accessibilityIdentifier("market-service-address")
+                }
+                Section {
+                    Text("iPhone 真机请填写运行后端的电脑局域网地址。127.0.0.1 指向手机自身，只适用于模拟器。")
+                    Text("手机与电脑需连接同一 Wi‑Fi，并允许本地网络访问。电脑上的后端需使用 --host 0.0.0.0 启动。")
+                    Button("打开系统设置") {
+                        if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                    }.tint(Design.orange)
+                }.font(.subheadline)
+                if let error = model.errorMessage { Text(error).font(.caption).foregroundStyle(Design.red) }
+                Button(model.loading ? "正在连接…" : "保存并连接") {
+                    Task {
+                        if await model.configureService(serviceAddress) { showConnection = false }
+                    }
+                }.disabled(model.loading).tint(Design.orange)
+            }
+            .navigationTitle("设置").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { showConnection = false } } }
+        }
+        .preferredColorScheme(darkModeEnabled ? .dark : .light)
+    }
+
+    private func quote(_ snapshot: MarketSnapshot) -> some View {
+        let asset = snapshot.asset
+        return VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top) {
                 Button { showAssets = true } label: {
                     VStack(alignment: .leading, spacing: 5) {
@@ -137,14 +190,14 @@ struct ContentView: View {
                 VStack(alignment: .trailing, spacing: 7) {
                     HStack(spacing: 4) {
                         Circle().fill(Design.secondary).frame(width: 4, height: 4)
-                        Text("已收盘").font(.system(size: 10))
+                        Text(snapshot.isLive ? "日线收盘" : "演示收盘").font(.system(size: 10))
                     }.foregroundStyle(Design.secondary)
-                    Text(timestamp(asOf, format: "MM/dd HH:mm") + " · 北京时间").font(.system(size: 10)).foregroundStyle(Design.secondary)
-                    Text("模拟行情").font(.system(size: 9, weight: .medium)).foregroundStyle(Design.orange)
+                    Text(timestamp(snapshot.asOf, format: "MM/dd HH:mm") + " · 北京时间").font(.system(size: 10)).foregroundStyle(Design.secondary)
+                    Text(snapshot.marketSourceLabel).font(.system(size: 9, weight: .medium)).foregroundStyle(Design.orange)
                         .padding(.horizontal, 6).padding(.vertical, 3).background(Design.orangeSoft, in: RoundedRectangle(cornerRadius: 4))
                 }.padding(.bottom, 2)
             }
-        }.padding(.horizontal, 22).padding(.top, 12).padding(.bottom, 14).background(.white)
+        }.padding(.horizontal, 22).padding(.top, 12).padding(.bottom, 14).background(Design.surface)
         .opacity(model.loading ? 0.5 : 1)
         .allowsHitTesting(!model.loading)
     }
@@ -163,7 +216,7 @@ struct ContentView: View {
                 }.buttonStyle(.plain)
             }
             Spacer(minLength: 0)
-        }.padding(.horizontal, 22).padding(.top, 5).background(.white)
+        }.padding(.horizontal, 22).padding(.top, 5).background(Design.surface)
     }
 
     private func forecastCard(_ snapshot: MarketSnapshot, _ forecast: Forecast) -> some View {
@@ -187,7 +240,7 @@ struct ContentView: View {
                         Button { withAnimation(.easeInOut(duration: 0.25)) { model.horizon = days } } label: {
                             Text("\(days)日").font(.system(size: 12, weight: model.horizon == days ? .semibold : .regular))
                                 .frame(width: 48, height: 29)
-                                .background(model.horizon == days ? .white : .clear, in: RoundedRectangle(cornerRadius: 6))
+                                .background(model.horizon == days ? Design.selectedSurface : .clear, in: RoundedRectangle(cornerRadius: 6))
                                 .foregroundStyle(model.horizon == days ? Design.ink : Design.secondary)
                                 .shadow(color: .black.opacity(model.horizon == days ? 0.04 : 0), radius: 2, y: 1)
                         }.buttonStyle(.plain).accessibilityLabel("预测未来\(days)个交易日")
@@ -244,7 +297,7 @@ struct ContentView: View {
                     }
                 }
             }
-            Text(forecast.explanation).font(.system(size: 12)).foregroundStyle(Color(hex: 0x626975)).lineSpacing(6).fixedSize(horizontal: false, vertical: true)
+            Text(forecast.explanation).font(.system(size: 12)).foregroundStyle(Design.bodyText).lineSpacing(6).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 7) {
                 ForEach(Array(forecast.drivers.enumerated()), id: \.offset) { index, driver in
                     HStack(spacing: 4) {
@@ -324,8 +377,8 @@ struct ContentView: View {
     }
     private var sourceFooter: some View {
         VStack(spacing: 8) {
-            HStack(spacing: 5) { Image(systemName: "point.3.connected.trianglepath.dotted"); Text("行情适配 AKShare · 预测由 RWKV 驱动") }.font(.system(size: 10, weight: .medium))
-            Text("当前为演示模式，行情、预测和回测均为模拟数据。\n概率区间不代表收益保证，不构成投资建议。")
+            HStack(spacing: 5) { Image(systemName: "point.3.connected.trianglepath.dotted"); Text((model.snapshot?.marketSourceLabel ?? "行情加载中") + " · 预测模拟") }.font(.system(size: 10, weight: .medium))
+            Text((model.snapshot?.sourceDescription ?? "") + "\n概率区间不代表收益保证，不构成投资建议。")
                 .font(.system(size: 9)).multilineTextAlignment(.center).lineSpacing(4)
         }.foregroundStyle(Design.secondary).frame(maxWidth: .infinity).padding(.vertical, 12)
     }
@@ -339,11 +392,11 @@ struct ContentView: View {
                 Spacer(minLength: 10)
                 Button { showDelivery = true } label: {
                     HStack(spacing: 7) { Image(systemName: "paperplane.fill").font(.system(size: 12)); Text("下发预测").font(.system(size: 13, weight: .semibold)) }
-                        .foregroundStyle(.white).frame(width: 131, height: 43)
-                        .background(Design.ink, in: RoundedRectangle(cornerRadius: 11))
+                        .foregroundStyle(Design.onAction).frame(width: 131, height: 43)
+                        .background(Design.action, in: RoundedRectangle(cornerRadius: 11))
                 }.disabled(model.forecast == nil || model.loading).opacity(model.loading ? 0.5 : 1)
             }.padding(.horizontal, 20).padding(.top, 11).padding(.bottom, 7)
-        }.background(.white)
+        }.background(Design.surface)
     }
     private func navItem(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
@@ -389,7 +442,7 @@ struct ContentView: View {
                     methodItem("区间如何阅读", "浅色区域表示所选 80% 或 95% 的预测区间；深色区域表示中间 50% 区间；虚线是中位走势。概率是模型对可能路径的估计。")
                     methodItem("为什么区间逐渐变宽", "预测越远，不确定性通常越高。区间由每个未来交易日的分位数构成，因此能呈现整段走势范围，而不只是最高价和最低价。")
                     methodItem("上涨概率", "表示期末价格高于当前价格的模拟概率，与区间覆盖水平是不同概念。")
-                    methodItem("数据与模型", "AKShare 可提供 ETF／指数行情及历史数据，不提供 RWKV 预测。当前所有数据及模型指标为固定模拟样例，尚未接入真实行情和模型推理。")
+                    methodItem("数据与模型", (model.snapshot?.sourceDescription ?? "") + "行情采用不复权日线，展示最近完整交易日；未来日期暂只跳过周末，未对齐交易所节假日。")
                     Link("查看 AKShare 数据文档 ↗", destination: URL(string: "https://akshare.akfamily.xyz/index.html")!).font(.subheadline).tint(Design.orange)
                 }.padding(24)
             }.navigationTitle("关于走势预测").navigationBarTitleDisplayMode(.inline)
@@ -403,7 +456,7 @@ struct ContentView: View {
 
 extension View {
     func card() -> some View {
-        background(.white, in: RoundedRectangle(cornerRadius: 16))
+        background(Design.surface, in: RoundedRectangle(cornerRadius: 16))
             .overlay { RoundedRectangle(cornerRadius: 16).stroke(Design.line.opacity(0.6), lineWidth: 0.5) }
     }
 }

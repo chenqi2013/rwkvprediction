@@ -6,6 +6,7 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from http.server import ThreadingHTTPServer
+from unittest.mock import Mock, patch
 import server
 
 
@@ -14,6 +15,8 @@ class APIContractTests(unittest.TestCase):
     def setUpClass(cls):
         cls.directory = tempfile.TemporaryDirectory()
         server.DB = Path(cls.directory.name) / 'test.sqlite3'
+        cls.original_provider = server.PROVIDER
+        server.PROVIDER = server.MarketProvider(server.payload(), mode='demo')
         cls.http = ThreadingHTTPServer(('127.0.0.1', 0), server.Handler)
         cls.base = f'http://127.0.0.1:{cls.http.server_port}'
         cls.thread = threading.Thread(target=cls.http.serve_forever, daemon=True)
@@ -24,6 +27,7 @@ class APIContractTests(unittest.TestCase):
         cls.http.shutdown()
         cls.http.server_close()
         cls.directory.cleanup()
+        server.PROVIDER = cls.original_provider
 
     def request(self, path, body=None):
         req = Request(self.base + path, data=json.dumps(body).encode() if body is not None else None,
@@ -73,6 +77,15 @@ class APIContractTests(unittest.TestCase):
             self.request('/v1/markets/UNKNOWN')
         self.assertEqual(error.exception.code, 404)
         error.exception.close()
+
+    def test_upstream_failure_returns_502_without_fake_quotes(self):
+        provider = server.MarketProvider(server.payload(), history_loader=Mock(side_effect=ConnectionError('offline')))
+        with patch.object(server, 'PROVIDER', provider):
+            with self.assertRaises(HTTPError) as error:
+                self.request('/v1/markets/510300')
+            self.assertEqual(error.exception.code, 502)
+            self.assertIn('未使用模拟行情替代', json.load(error.exception)['error'])
+            error.exception.close()
 
 
 if __name__ == '__main__':

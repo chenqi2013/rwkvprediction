@@ -66,5 +66,7 @@ __pycache__/
 *.pyc
 backend/*.sqlite3
 backend/*.sqlite3-*
+backend/.venv/
+backend/runtime/
 DerivedData/
 *.xcresult/

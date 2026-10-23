@@ -1,15 +1,30 @@
 import SwiftUI
+import UIKit
 
 enum Design {
-    static let ink = Color(hex: 0x19212C)
-    static let secondary = Color(hex: 0x8B9098)
-    static let orange = Color(hex: 0xF47735)
-    static let orangeSoft = Color(hex: 0xFFF3E9)
-    static let blue = Color(hex: 0x5776D7)
-    static let green = Color(hex: 0x199E83)
-    static let red = Color(hex: 0xE75A58)
-    static let line = Color(hex: 0xECEEF0)
-    static let canvas = Color(hex: 0xF7F8FA)
+    static let ink = adaptive(light: 0x19212C, dark: 0xE9EDF5)
+    static let secondary = adaptive(light: 0x8B9098, dark: 0xA2ACBA)
+    static let bodyText = adaptive(light: 0x626975, dark: 0xC0C8D4)
+    static let orange = adaptive(light: 0xF47735, dark: 0xFF9A5F)
+    static let orangeSoft = adaptive(light: 0xFFF3E9, dark: 0x36271F)
+    static let blue = adaptive(light: 0x5776D7, dark: 0x89A6FF)
+    static let green = adaptive(light: 0x199E83, dark: 0x40C5A7)
+    static let red = adaptive(light: 0xE75A58, dark: 0xFF7975)
+    static let line = adaptive(light: 0xECEEF0, dark: 0x303945)
+    static let canvas = adaptive(light: 0xF7F8FA, dark: 0x101419)
+    static let surface = adaptive(light: 0xFFFFFF, dark: 0x1A2029)
+    static let selectedSurface = adaptive(light: 0xFFFFFF, dark: 0x303A49)
+    static let action = adaptive(light: 0x19212C, dark: 0xF79250)
+    static let onAction = adaptive(light: 0xFFFFFF, dark: 0x181C23)
+
+    private static func adaptive(light: UInt32, dark: UInt32) -> Color {
+        Color(uiColor: UIColor { traits in
+            let hex = traits.userInterfaceStyle == .dark ? dark : light
+            return UIColor(red: CGFloat((hex >> 16) & 255) / 255,
+                           green: CGFloat((hex >> 8) & 255) / 255,
+                           blue: CGFloat(hex & 255) / 255, alpha: 1)
+        })
+    }
 }
 extension Color {
     init(hex: UInt32) {
@@ -80,7 +95,7 @@ struct ForecastChart: View {
                     }
                     context.stroke(line(history), with: .color(Design.blue), style: StrokeStyle(lineWidth: 2.1, lineCap: .round, lineJoin: .round))
                     let dot = CGRect(x: split+insetLeft-4, y: currentY-4, width: 8, height: 8)
-                    context.fill(Path(ellipseIn: dot.insetBy(dx: -3, dy: -3)), with: .color(.white))
+                    context.fill(Path(ellipseIn: dot.insetBy(dx: -3, dy: -3)), with: .color(Design.surface))
                     context.fill(Path(ellipseIn: dot), with: .color(Design.blue))
                     if let selectedX {
                         var cursor = Path()
@@ -107,7 +122,8 @@ struct ForecastChart: View {
                         Text(point.0).font(.system(size: 10)).foregroundStyle(Design.secondary)
                         Text(point.1).font(.system(size: 11, weight: .semibold, design: .monospaced))
                     }
-                    .padding(8).background(.white, in: RoundedRectangle(cornerRadius: 8))
+                    .foregroundStyle(Design.ink)
+                    .padding(8).background(Design.selectedSurface, in: RoundedRectangle(cornerRadius: 8))
                     .shadow(color: .black.opacity(0.09), radius: 5, y: 2)
                     .position(x: min(max(selectedX, 80), geometry.size.width-85), y: 30)
                 }

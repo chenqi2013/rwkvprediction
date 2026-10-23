@@ -41,8 +41,8 @@ struct AssetPicker: View {
                         }.accessibilityIdentifier("asset-\(asset.symbol)").listRowSeparatorTint(Design.line)
                     }.listStyle(.plain)
                 }
-                Text("模拟行情 · 用于产品演示").font(.caption2).foregroundStyle(Design.secondary).padding(.bottom, 10)
-            }.background(.white)
+                Text(model.snapshot?.marketSourceLabel ?? "行情来源：AKShare").font(.caption2).foregroundStyle(Design.secondary).padding(.bottom, 10)
+            }.background(Design.surface)
                 .searchable(text: $query, prompt: "搜索 ETF、指数或代码")
                 .navigationTitle(favoritesOnly ? "我的自选" : "选择预测标的").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() }.tint(Design.orange) } }
@@ -59,7 +59,7 @@ struct DeliverySheet: View {
     @State private var error: String?
     private var report: String {
         guard let asset = model.snapshot?.asset, let forecast = model.forecast else { return "" }
-        return "【知势 · RWKV 模拟预测】\n\(asset.name) \(asset.symbol)\n当前价格：\(asset.formatted(asset.price)) CNY\n未来 \(forecast.horizon) 个交易日\n\(model.confidence)% 期末区间：\(asset.formatted(forecast.last.lower(model.confidence))) – \(asset.formatted(forecast.last.upper(model.confidence)))\n中位预期：\(asset.formatted(forecast.last.p50))\n\n\(forecast.explanation)\n\n所有数据为模拟，仅供产品演示，不构成投资建议。"
+        return "【知势 · RWKV 模拟预测】\n\(asset.name) \(asset.symbol)\n收盘价格：\(asset.formatted(asset.price)) CNY\n行情截至：\(model.snapshot?.asOf ?? "")\n未来 \(forecast.horizon) 个交易日\n\(model.confidence)% 期末区间：\(asset.formatted(forecast.last.lower(model.confidence))) – \(asset.formatted(forecast.last.upper(model.confidence)))\n中位预期：\(asset.formatted(forecast.last.p50))\n\n\(forecast.explanation)\n\n\(model.snapshot?.sourceDescription ?? "")\n不构成投资建议。"
     }
     var body: some View {
         NavigationStack {
@@ -92,9 +92,9 @@ struct DeliverySheet: View {
                                 sending = false
                             }
                         } label: {
-                            HStack(spacing: 9) { if sending { ProgressView().tint(.white) }; Text(sending ? "正在下发…" : "确认下发") }
-                                .font(.system(size: 15, weight: .semibold)).foregroundStyle(.white).frame(maxWidth: .infinity).frame(height: 49)
-                                .background(Design.ink, in: RoundedRectangle(cornerRadius: 12))
+                            HStack(spacing: 9) { if sending { ProgressView().tint(Design.onAction) }; Text(sending ? "正在下发…" : "确认下发") }
+                                .font(.system(size: 15, weight: .semibold)).foregroundStyle(Design.onAction).frame(maxWidth: .infinity).frame(height: 49)
+                                .background(Design.action, in: RoundedRectangle(cornerRadius: 12))
                         }.disabled(sending)
                     }
                     ShareLink(item: report) {
@@ -140,7 +140,8 @@ struct DeliveryHistory: View {
                                         Text("\(forecast.formatted(forecast.lower)) – \(forecast.formatted(forecast.upper)) \(forecast.currency)").font(.system(size: 17, weight: .semibold, design: .rounded))
                                         Text("中位预期：" + forecast.formatted(forecast.median)).font(.caption)
                                         Text(forecast.explanation).font(.caption).lineSpacing(5)
-                                        Text("模拟数据，仅用于产品演示。").font(.caption2).foregroundStyle(Design.orange)
+                                        Text(forecast.marketSource == "akshare" ? "行情：AKShare · 预测与解读：模拟" : "行情与预测均为模拟数据").font(.caption2).foregroundStyle(Design.orange)
+                                        if let asOf = forecast.asOf { Text("行情截至：" + asOf).font(.caption2).foregroundStyle(.secondary) }
                                     }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 10)
                                 }.font(.caption).tint(Design.orange)
                             }
