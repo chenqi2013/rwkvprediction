@@ -15,6 +15,7 @@ class MarketException implements Exception {
 
 abstract class MarketService {
   Future<List<MarketAsset>> assets();
+  Future<InstrumentSearch> search(String query, {String? kind, int offset = 0});
   Future<MarketSnapshot> snapshot(String symbol);
   Future<Json> deliver(
     MarketSnapshot snapshot,
@@ -67,8 +68,27 @@ class HttpMarketService extends MarketService {
           .map((row) => MarketAsset(Json.from(row)))
           .toList();
   @override
-  Future<MarketSnapshot> snapshot(String symbol) async =>
-      MarketSnapshot(Json.from(await request('v1/markets/$symbol')));
+  Future<InstrumentSearch> search(
+    String query, {
+    String? kind,
+    int offset = 0,
+  }) async {
+    final path = Uri(
+      path: 'v1/instruments',
+      queryParameters: {
+        'q': query,
+        'kind': ?kind,
+        'offset': '$offset',
+        'limit': '50',
+      },
+    );
+    return InstrumentSearch(Json.from(await request(path.toString())));
+  }
+
+  @override
+  Future<MarketSnapshot> snapshot(String symbol) async => MarketSnapshot(
+    Json.from(await request('v1/markets/${Uri.encodeComponent(symbol)}')),
+  );
   @override
   Future<Json> deliver(
     MarketSnapshot snapshot,
@@ -80,6 +100,7 @@ class HttpMarketService extends MarketService {
       'v1/deliveries',
       body: {
         'symbol': snapshot.asset.symbol,
+        'instrument_id': snapshot.asset.id,
         'prediction_id': forecast.id,
         'confidence': confidence,
         'channel': channel,
@@ -111,8 +132,41 @@ class DemoMarketService extends MarketService {
           .map((row) => MarketAsset(Json.from(row)))
           .toList();
   @override
-  Future<MarketSnapshot> snapshot(String symbol) async =>
-      MarketSnapshot((await payload())['snapshots'][symbol]);
+  Future<InstrumentSearch> search(
+    String query, {
+    String? kind,
+    int offset = 0,
+  }) async {
+    final matches = (await assets())
+        .where(
+          (asset) =>
+              (kind == null || kind == asset.kind) &&
+              (asset.name.toLowerCase().contains(query.toLowerCase()) ||
+                  asset.symbol.contains(query)),
+        )
+        .toList();
+    return InstrumentSearch({
+      'items': matches
+          .skip(offset)
+          .take(50)
+          .map((asset) => asset.metadata)
+          .toList(),
+      'total': matches.length,
+      'has_more': offset + 50 < matches.length,
+      'warnings': ['离线演示仅包含 5 个示例标的，关闭演示后可搜索真实市场。'],
+    });
+  }
+
+  @override
+  Future<MarketSnapshot> snapshot(String symbol) async {
+    final data = await payload();
+    final candidates = await assets();
+    final asset = candidates.firstWhere(
+      (asset) => asset.id == symbol || asset.symbol == symbol,
+    );
+    return MarketSnapshot(data['snapshots'][asset.symbol]);
+  }
+
   @override
   Future<Json> deliver(
     MarketSnapshot snapshot,
@@ -123,6 +177,7 @@ class DemoMarketService extends MarketService {
     'id': 'local-${DateTime.now().microsecondsSinceEpoch}',
     'asset_name': snapshot.asset.name,
     'symbol': snapshot.asset.symbol,
+    'instrument_id': snapshot.asset.id,
     'prediction_id': forecast.id,
     'created_at': DateTime.now().toUtc().toIso8601String(),
     'channel': channel,

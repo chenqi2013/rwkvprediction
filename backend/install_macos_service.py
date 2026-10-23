@@ -21,7 +21,9 @@ def install():
     destination = Path.home() / 'Library/LaunchAgents' / (LABEL + '.plist')
     destination.parent.mkdir(parents=True, exist_ok=True)
     no_proxy = os.environ.get('NO_PROXY', os.environ.get('no_proxy', ''))
-    no_proxy = ','.join(filter(None, [no_proxy, '127.0.0.1', 'localhost', 'push2his.eastmoney.com', 'finance.sina.com.cn']))
+    no_proxy = ','.join(filter(None, [no_proxy, '127.0.0.1', 'localhost', 'push2his.eastmoney.com',
+                                    'finance.sina.com.cn', 'vip.stock.finance.sina.com.cn',
+                                    'www.joinquant.com', '.sse.com.cn', '.szse.cn', '.bse.cn']))
     definition = dict(Label=LABEL,
                       ProgramArguments=[sys.executable, str(ROOT / 'backend/server.py'), '--host', '0.0.0.0', '--port', str(args.port)],
                       WorkingDirectory=str(ROOT), RunAtLoad=True, KeepAlive=True, ThrottleInterval=10,

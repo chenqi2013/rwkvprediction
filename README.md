@@ -2,7 +2,7 @@
 
 基于 SwiftUI 的 iOS ETF／指数预测原型，参考富途的行情详情结构。以「历史行情 → 概率走势 → 市场理解 → 预测下发」为主线，展示整段未来走势的区间，而不只是最高／最低目标价。
 
-跨平台 Flutter 客户端位于 [`flutter_prediction`](flutter_prediction/README.md)，包含 Android、iOS、macOS、Windows 和 Linux 工程，复用当前 Python 后端。运行方式见该目录的 README。
+跨平台 Flutter 客户端位于 [`flutter_prediction`](flutter_prediction/README.md)，包含 Android、iOS、macOS、Windows 和 Linux 工程，复用当前 Python 后端。Flutter 已支持从 AKShare 名单搜索 A 股、ETF 和指数，选中任意搜索结果后展示真实日线与现有模拟预测，不再局限于原生原型的 5 个精选标的。运行方式见该目录的 README。
 
 ## 启动 iOS 应用
 
@@ -77,12 +77,14 @@ curl http://127.0.0.1:8787/v1/markets/510300
 | --- | --- |
 | ETF 日线／收盘报价 | `fund_etf_hist_em`，`adjust=""` 不复权 |
 | 指数日线／收盘报价 | `stock_zh_index_daily_em`，明确使用 `sh000300`／`sh000001` |
+| A 股日线／收盘报价 | `stock_zh_a_hist(adjust="")`，备用 `stock_zh_a_daily` |
+| 可搜索的标的名单 | `stock_info_a_code_name`、`fund_etf_category_sina`、`index_stock_info` |
 
 东方财富接口连接中断时，自动尝试 AKShare 的 `fund_etf_hist_sina`／`stock_zh_index_daily` 新浪历史接口。备用源仍为真实日线；其指数成交额缺失时展示 `--`，两个来源均失败才返回 502。
 
 报价与历史曲线使用同一份日线，避免不同时间和复权口径混用。涨跌幅由最近两个完整交易日收盘价计算；成交额来自日线的 `成交额`／`amount`，按元换算成万／亿。历史成交量保留 AKShare 上游单位，不作为成交额展示。5 个标的的联网获取已经验证。
 
-当前链路：AKShare → 日线清洗／校验 → 真实历史曲线和收盘报价 → 以收盘价缩放模拟预测 → 页面。价格校验包括有限正数、OHLC 顺序和至少 61 根完整日线。
+当前链路：AKShare → 日线清洗／校验 → 真实历史曲线和收盘报价 → 以收盘价缩放模拟预测 → 页面。价格校验包括有限正数、OHLC 顺序和至少 2 根完整日线，最多展示最近 61 根，不补造新上市标的的历史。
 
 RWKV 尚未接入。未来区间、趋势、上涨概率、驱动因素、情景、回测、Token 用量和耗时仍为模拟；解读会明确说明真实行情日期与模拟边界。真实模型可以替换 `market_provider.live_snapshot` 中的模拟预测部分，保持 HTTP 契约不变。
 

@@ -6,13 +6,51 @@ String signed(double value, [int digits = 2]) =>
 String shortDate(String value) =>
     value.length >= 10 ? value.substring(5, 10).replaceAll('-', '/') : value;
 
-class MarketAsset {
-  MarketAsset(this.json);
+class MarketInstrument {
+  MarketInstrument(this.json);
   final Json json;
   String get symbol => json['symbol'];
   String get name => json['name'];
   String get kind => json['kind'];
   String get subtitle => json['subtitle'];
+  String get market =>
+      json['market'] ??
+      (kind == '指数'
+          ? (symbol.startsWith('399') ? 'sz' : 'sh')
+          : (symbol.startsWith('5') || symbol.startsWith('6')
+                ? 'sh'
+                : RegExp(r'^[489]').hasMatch(symbol)
+                ? 'bj'
+                : 'sz'));
+  String get id =>
+      json['id'] ??
+      '$market-${{'ETF': 'etf', '指数': 'index', '股票': 'stock'}[kind]}-$symbol';
+  Json get metadata => {
+    'id': id,
+    'symbol': symbol,
+    'name': name,
+    'kind': kind,
+    'market': market,
+    'subtitle': subtitle,
+  };
+}
+
+class InstrumentSearch {
+  InstrumentSearch(Json json)
+    : items = (json['items'] as List)
+          .map((row) => MarketInstrument(Json.from(row)))
+          .toList(),
+      total = json['total'],
+      hasMore = json['has_more'],
+      warnings = List<String>.from(json['warnings'] ?? []);
+  final List<MarketInstrument> items;
+  final int total;
+  final bool hasMore;
+  final List<String> warnings;
+}
+
+class MarketAsset extends MarketInstrument {
+  MarketAsset(super.json);
   double get price => number(json['price']);
   double get changePercent => number(json['change_percent']);
   double get previousClose => number(json['previous_close']);

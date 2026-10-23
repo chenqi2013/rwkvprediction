@@ -152,7 +152,7 @@ class _MarketPageState extends State<MarketPage> {
             ),
           ),
           IconButton(
-            tooltip: '搜索 ETF 和指数',
+            tooltip: '搜索 ETF、指数和股票',
             onPressed: assets,
             icon: const Icon(Icons.search_rounded, size: 24),
           ),
@@ -386,7 +386,7 @@ class _MarketPageState extends State<MarketPage> {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        '${asset.kind == 'ETF' ? 'SH/SZ' : 'INDEX'}  ${asset.symbol}  ${asset.subtitle}',
+                        '${asset.market.toUpperCase()}  ${asset.symbol}  ${asset.subtitle}',
                         style: TextStyle(fontSize: 11, color: colors.secondary),
                       ),
                     ],
@@ -394,15 +394,13 @@ class _MarketPageState extends State<MarketPage> {
                 ),
               ),
               IconButton(
-                tooltip: model.favorites.contains(asset.symbol)
-                    ? '移出自选'
-                    : '加入自选',
-                onPressed: () => model.toggleFavorite(asset.symbol),
+                tooltip: model.favorites.contains(asset.id) ? '移出自选' : '加入自选',
+                onPressed: () => model.toggleFavorite(asset.id),
                 icon: Icon(
-                  model.favorites.contains(asset.symbol)
+                  model.favorites.contains(asset.id)
                       ? Icons.star_rounded
                       : Icons.star_outline_rounded,
-                  color: model.favorites.contains(asset.symbol)
+                  color: model.favorites.contains(asset.id)
                       ? colors.orange
                       : colors.secondary,
                 ),
@@ -1013,7 +1011,7 @@ class _MarketPageState extends State<MarketPage> {
         PanelTitle(
           '历史行情',
           trailing: Text(
-            '近 60 个交易日',
+            '近 ${snapshot.history.length} 个交易日',
             style: TextStyle(
               fontSize: 11,
               color: MarketColors.of(context).secondary,

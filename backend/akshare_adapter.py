@@ -1,10 +1,12 @@
 """AKShare daily bars, without price adjustment or synthetic fallback."""
 import math
 import logging
+import threading
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 SHANGHAI = ZoneInfo('Asia/Shanghai')
+SINA_LOCK = threading.Lock()
 
 
 def normalize(records, now, allow_missing_amount=False):
@@ -28,31 +30,42 @@ def normalize(records, now, allow_missing_amount=False):
             raise ValueError('Invalid OHLC ordering in AKShare response')
         bars[day] = bar
     result = [bars[day] for day in sorted(bars)]
-    if len(result) < 61:
-        raise ValueError('AKShare returned fewer than 61 complete daily bars')
+    if len(result) < 2:
+        raise ValueError('至少需要两个完整交易日，当前标的历史数据不足')
     return result[-61:]
 
 
 def history(symbol: str, kind: str, now=None) -> list[dict]:
     import akshare as ak
+    from instrument_catalog import instrument
+    identity = instrument(symbol, symbol, kind)
+    symbol = identity['symbol']
+    market_symbol = identity['market'] + symbol
     now = now or datetime.now(SHANGHAI)
     arguments = dict(start_date=(now.date() - timedelta(days=400)).strftime('%Y%m%d'),
                      end_date=now.strftime('%Y%m%d'))
-    if kind not in ('ETF', '指数'):
-        raise ValueError('kind must be ETF or 指数')
     try:
         if kind == 'ETF':
             frame = ak.fund_etf_hist_em(symbol=symbol, period='daily', adjust='', **arguments)
             frame = frame.rename(columns={'日期': 'date', '开盘': 'open', '收盘': 'close', '最高': 'high',
                                           '最低': 'low', '成交量': 'volume', '成交额': 'amount'})
+        elif kind == '股票':
+            frame = ak.stock_zh_a_hist(symbol=symbol, period='daily', adjust='', timeout=10, **arguments)
+            frame = frame.rename(columns={'日期': 'date', '开盘': 'open', '收盘': 'close', '最高': 'high',
+                                          '最低': 'low', '成交量': 'volume', '成交额': 'amount'})
         else:
-            frame = ak.stock_zh_index_daily_em(symbol='sh' + symbol, **arguments)
+            frame = ak.stock_zh_index_daily_em(symbol=market_symbol, **arguments)
         bars = normalize(frame.to_dict(orient='records'), now)
         vendor = 'eastmoney'
     except Exception as error:
         logging.warning('Eastmoney daily history failed for %s; trying Sina: %s', symbol, error)
-        market_symbol = ('sz' if symbol.startswith(('15', '16')) else 'sh') + symbol
-        frame = ak.fund_etf_hist_sina(symbol=market_symbol) if kind == 'ETF' else ak.stock_zh_index_daily(symbol=market_symbol)
+        with SINA_LOCK:
+            if kind == 'ETF':
+                frame = ak.fund_etf_hist_sina(symbol=market_symbol)
+            elif kind == '股票':
+                frame = ak.stock_zh_a_daily(symbol=market_symbol, adjust='', **arguments)
+            else:
+                frame = ak.stock_zh_index_daily(symbol=market_symbol)
         bars = normalize(frame.to_dict(orient='records'), now, allow_missing_amount=kind == '指数')
         vendor = 'sina'
     for bar in bars:

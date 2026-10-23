@@ -9,6 +9,7 @@ from datetime import date, datetime
 
 import akshare_adapter
 from generate_fixtures import weekdays
+from instrument_catalog import InstrumentCatalog, KINDS, instrument
 
 
 class MarketUnavailable(Exception):
@@ -36,7 +37,7 @@ def live_snapshot(template, bars, fetched_at):
     fingerprint = hashlib.sha256(json.dumps(bars, sort_keys=True).encode()).hexdigest()[:12]
     for forecast in snapshot['predictions'].values():
         horizon = forecast['horizon']
-        forecast['id'] = f'mock-akshare-{asset["symbol"]}-{horizon}-{fingerprint}'
+        forecast['id'] = f'mock-akshare-{asset.get("id", asset["symbol"])}-{horizon}-{fingerprint}'
         dates = weekdays(date.fromisoformat(latest['date']), horizon)
         for point, day in zip(forecast['points'], dates):
             point['date'] = day
@@ -54,34 +55,70 @@ def live_snapshot(template, bars, fetched_at):
 
 
 class MarketProvider:
-    def __init__(self, fixtures, mode='live', history_loader=None, ttl=300):
+    def __init__(self, fixtures, mode='live', history_loader=None, ttl=300, catalog=None):
         self.fixtures = fixtures
         self.mode = mode
         self.history_loader = history_loader or akshare_adapter.history
         self.ttl = ttl
         self.cache = {}
-        self.locks = {symbol: threading.Lock() for symbol in fixtures['snapshots']}
+        self.locks = {}
+        self.lock = threading.Lock()
+        self.catalog = catalog or InstrumentCatalog([instrument(asset['symbol'], asset['name'], asset['kind']) for asset in fixtures['assets']])
+
+    def metadata(self, identity):
+        if identity in self.fixtures['snapshots']:
+            asset = self.fixtures['snapshots'][identity]['asset']
+            return instrument(asset['symbol'], asset['name'], asset['kind'])
+        if self.mode == 'demo':
+            for asset in self.fixtures['assets']:
+                item = instrument(asset['symbol'], asset['name'], asset['kind'])
+                if item['id'] == identity:
+                    return item
+            raise KeyError(identity)
+        return self.catalog.resolve(identity)
+
+    def search(self, query='', kind=None, limit=50, offset=0):
+        if kind is not None and kind not in KINDS:
+            raise ValueError('kind must be ETF, 指数 or 股票')
+        if self.mode != 'demo':
+            return self.catalog.search(query, kind, limit, offset)
+        items = [self.metadata(asset['symbol']) for asset in self.fixtures['assets']]
+        items = [item for item in items if (not kind or kind == item['kind']) and
+                 (query.casefold() in item['name'].casefold() or query in item['symbol'])]
+        return dict(items=items[offset:offset + limit], total=len(items), limit=limit, offset=offset,
+                    has_more=offset + limit < len(items), warnings=['离线演示仅包含 5 个示例标的。'])
 
     def snapshot(self, symbol):
-        if symbol not in self.fixtures['snapshots']:
-            raise KeyError(symbol)
+        metadata = self.metadata(symbol)
+        identity = metadata['id']
         if self.mode == 'demo':
-            return self.fixtures['snapshots'][symbol]
-        with self.locks[symbol]:
-            cached = self.cache.get(symbol)
+            snapshot = copy.deepcopy(self.fixtures['snapshots'][metadata['symbol']])
+            snapshot['asset'].update(id=identity, market=metadata['market'])
+            return snapshot
+        with self.lock:
+            symbol_lock = self.locks.setdefault(identity, threading.Lock())
+        with symbol_lock:
+            cached = self.cache.get(identity)
             if cached and time.monotonic() - cached[0] < self.ttl:
                 return cached[1]
-            template = self.fixtures['snapshots'][symbol]
+            original = self.fixtures['snapshots'].get(metadata['symbol'])
+            if original and original['asset']['kind'] != metadata['kind']:
+                original = None
+            template = copy.deepcopy(original or self.fixtures['snapshots']['510300'])
+            if original is None:
+                template['asset'].update(metadata)
+            else:
+                template['asset'].update(id=identity, market=metadata['market'])
             for attempt in range(2):
                 try:
-                    bars = self.history_loader(symbol, template['asset']['kind'])
+                    bars = self.history_loader(metadata['market'] + metadata['symbol'] if self.history_loader == akshare_adapter.history else metadata['symbol'], metadata['kind'])
                     snapshot = live_snapshot(template, bars, datetime.now(akshare_adapter.SHANGHAI).isoformat(timespec='seconds'))
                     break
                 except Exception as error:
                     if attempt == 1:
-                        raise MarketUnavailable('AKShare 行情获取失败，请检查网络或稍后重试；未使用模拟行情替代。') from error
+                        raise MarketUnavailable(f'{metadata["name"]}的 AKShare 历史行情获取失败或历史不足，请稍后重试；未使用模拟行情替代。') from error
                     time.sleep(0.3)
-            self.cache[symbol] = (time.monotonic(), snapshot)
+            self.cache[identity] = (time.monotonic(), snapshot)
             return snapshot
 
     def assets(self):

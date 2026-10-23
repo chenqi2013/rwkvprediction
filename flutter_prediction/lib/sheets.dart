@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -231,17 +232,87 @@ class AssetPicker extends StatefulWidget {
 class _AssetPickerState extends State<AssetPicker> {
   String query = '';
   String category = '全部';
+  List<MarketInstrument> results = [];
+  List<String> warnings = [];
+  bool searching = false;
+  bool hasMore = false;
+  int total = 0;
+  String? error;
+  Timer? debounce;
+  int generation = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    if (!widget.favoritesOnly) {
+      searching = true;
+      fetch(++generation);
+    }
+  }
+
+  @override
+  void dispose() {
+    debounce?.cancel();
+    ++generation;
+    super.dispose();
+  }
+
+  void search({bool immediate = false}) {
+    debounce?.cancel();
+    final revision = ++generation;
+    setState(() {
+      results = [];
+      warnings = [];
+      error = null;
+      hasMore = false;
+      total = 0;
+      searching = !widget.favoritesOnly;
+    });
+    if (widget.favoritesOnly) return;
+    if (immediate) {
+      fetch(revision);
+    } else {
+      debounce = Timer(
+        const Duration(milliseconds: 350),
+        () => fetch(revision),
+      );
+    }
+  }
+
+  Future<void> fetch(int revision, {bool more = false}) async {
+    try {
+      final response = await widget.controller.search(
+        query,
+        kind: category == '全部' ? null : category,
+        offset: more ? results.length : 0,
+      );
+      if (!mounted || revision != generation) return;
+      setState(() {
+        results = more ? [...results, ...response.items] : response.items;
+        warnings = response.warnings;
+        hasMore = response.hasMore;
+        total = response.total;
+        searching = false;
+      });
+    } catch (exception) {
+      if (!mounted || revision != generation) return;
+      setState(() {
+        error = exception.toString();
+        searching = false;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: widget.controller,
     builder: (context, _) {
       final colors = MarketColors.of(context);
       final model = widget.controller;
-      final filtered = model.assets
+      final filtered = (widget.favoritesOnly ? model.assets : results)
           .where(
             (asset) =>
-                (!widget.favoritesOnly ||
-                    model.favorites.contains(asset.symbol)) &&
+                (!widget.favoritesOnly || model.favorites.contains(asset.id)) &&
                 (category == '全部' || category == asset.kind) &&
                 (query.isEmpty ||
                     asset.name.toLowerCase().contains(query.toLowerCase()) ||
@@ -256,27 +327,63 @@ class _AssetPickerState extends State<AssetPicker> {
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
               child: TextField(
-                onChanged: (value) => setState(() => query = value.trim()),
+                onChanged: (value) {
+                  query = value.trim();
+                  search();
+                },
                 decoration: const InputDecoration(
                   prefixIcon: Icon(Icons.search),
-                  hintText: '搜索 ETF、指数或代码',
+                  hintText: '搜索 ETF、指数、股票名称或代码',
                 ),
               ),
             ),
             SegmentedButton<String>(
-              segments: ['全部', 'ETF', '指数']
+              segments: ['全部', 'ETF', '指数', '股票']
                   .map(
                     (value) => ButtonSegment(value: value, label: Text(value)),
                   )
                   .toList(),
               selected: {category},
               showSelectedIcon: false,
-              onSelectionChanged: (value) =>
-                  setState(() => category = value.first),
+              onSelectionChanged: (value) {
+                category = value.first;
+                search(immediate: true);
+              },
             ),
             const SizedBox(height: 12),
+            if (warnings.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 6,
+                ),
+                child: Text(
+                  warnings.join('\n'),
+                  style: TextStyle(fontSize: 11, color: colors.secondary),
+                ),
+              ),
+            if (error != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Column(
+                  children: [
+                    Text(
+                      error!,
+                      style: TextStyle(fontSize: 12, color: colors.red),
+                    ),
+                    TextButton(
+                      onPressed: () => search(immediate: true),
+                      child: const Text('重试搜索'),
+                    ),
+                  ],
+                ),
+              ),
             Expanded(
-              child: filtered.isEmpty
+              child: searching && filtered.isEmpty
+                  ? const Center(child: CircularProgressIndicator())
+                  : error != null && filtered.isEmpty
+                  ? const SizedBox.shrink()
+                  : filtered.isEmpty
                   ? Center(
                       child: Text(
                         widget.favoritesOnly ? '暂无自选，点击行情星标即可添加。' : '没有找到相关标的',
@@ -284,23 +391,36 @@ class _AssetPickerState extends State<AssetPicker> {
                       ),
                     )
                   : ListView.separated(
-                      itemCount: filtered.length,
+                      itemCount: filtered.length + (hasMore ? 1 : 0),
                       separatorBuilder: (_, _) =>
                           const Divider(height: 1, indent: 20, endIndent: 20),
                       itemBuilder: (context, index) {
+                        if (index == filtered.length) {
+                          return TextButton(
+                            onPressed: searching
+                                ? null
+                                : () {
+                                    setState(() {
+                                      searching = true;
+                                      error = null;
+                                    });
+                                    fetch(++generation, more: true);
+                                  },
+                            child: Text(
+                              searching ? '正在加载…' : '加载更多（共 $total 个）',
+                            ),
+                          );
+                        }
                         final asset = filtered[index];
-                        final color = asset.changePercent >= 0
-                            ? colors.red
-                            : colors.green;
                         return ListTile(
-                          key: ValueKey('asset-${asset.symbol}'),
+                          key: ValueKey('asset-${asset.id}'),
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 20,
                             vertical: 9,
                           ),
                           onTap: () {
                             Navigator.pop(context);
-                            model.load(selectedSymbol: asset.symbol);
+                            model.load(selectedSymbol: asset.id);
                           },
                           title: Row(
                             children: [
@@ -327,38 +447,14 @@ class _AssetPickerState extends State<AssetPicker> {
                               ),
                             ),
                           ),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                children: [
-                                  Text(
-                                    asset.format(asset.price),
-                                    style: TextStyle(
-                                      fontSize: 17,
-                                      fontWeight: FontWeight.w600,
-                                      color: color,
-                                    ),
-                                  ),
-                                  Text(
-                                    '${signed(asset.changePercent)}%',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: color,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(width: 8),
-                              if (model.symbol == asset.symbol)
-                                Icon(
-                                  Icons.check,
-                                  color: colors.orange,
-                                  size: 16,
-                                ),
-                            ],
+                          trailing: Icon(
+                            model.symbol == asset.id
+                                ? Icons.check
+                                : Icons.chevron_right,
+                            color: model.symbol == asset.id
+                                ? colors.orange
+                                : colors.secondary,
+                            size: 18,
                           ),
                         );
                       },
@@ -367,7 +463,9 @@ class _AssetPickerState extends State<AssetPicker> {
             Padding(
               padding: const EdgeInsets.all(14),
               child: Text(
-                model.snapshot?.sourceLabel ?? '行情来源：AKShare',
+                widget.favoritesOnly
+                    ? '选择标的查看历史行情'
+                    : 'AKShare · A 股、场内 ETF 与指数 · 点击查看历史行情',
                 style: TextStyle(fontSize: 10, color: colors.secondary),
               ),
             ),

@@ -7,7 +7,11 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from http.server import ThreadingHTTPServer
 from unittest.mock import Mock, patch
+from urllib.parse import urlencode
 import server
+from instrument_catalog import InstrumentCatalog
+from test_instrument_search import catalog_loader
+from test_live_data import daily_bars
 
 
 class APIContractTests(unittest.TestCase):
@@ -77,6 +81,23 @@ class APIContractTests(unittest.TestCase):
             self.request('/v1/markets/UNKNOWN')
         self.assertEqual(error.exception.code, 404)
         error.exception.close()
+
+    def test_search_and_non_default_stock_history(self):
+        catalog = InstrumentCatalog([], loader=catalog_loader)
+        provider = server.MarketProvider(server.payload(), catalog=catalog, history_loader=lambda symbol, kind: daily_bars())
+        with patch.object(server, 'PROVIDER', provider):
+            _, result = self.request('/v1/instruments?' + urlencode(dict(q='茅台', kind='股票')))
+            self.assertEqual(result['total'], 1)
+            self.assertNotIn('price', result['items'][0])
+            _, snapshot = self.request('/v1/markets/' + result['items'][0]['id'])
+            self.assertEqual(snapshot['asset']['name'], '贵州茅台')
+            self.assertEqual(snapshot['source'], 'akshare')
+            self.assertEqual(len(snapshot['history']), 61)
+            for parameters in (dict(kind='crypto'), dict(limit=101), dict(offset=-1)):
+                with self.assertRaises(HTTPError) as error:
+                    self.request('/v1/instruments?' + urlencode(parameters))
+                self.assertEqual(error.exception.code, 400)
+                error.exception.close()
 
     def test_upstream_failure_returns_502_without_fake_quotes(self):
         provider = server.MarketProvider(server.payload(), history_loader=Mock(side_effect=ConnectionError('offline')))

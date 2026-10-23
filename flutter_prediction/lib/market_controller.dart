@@ -13,6 +13,18 @@ class MarketController extends ChangeNotifier {
       demo = const bool.fromEnvironment('DEMO_MODE'),
       favorites = (preferences.getStringList('favorites') ?? []).toSet() {
     _service = service ?? _makeService();
+    favorites = favorites.map(legacyIdentity).toSet();
+    try {
+      final saved =
+          jsonDecode(preferences.getString('instruments') ?? '[]') as List;
+      for (final row in saved) {
+        final asset = MarketInstrument(Json.from(row));
+        assets.removeWhere((item) => item.id == asset.id);
+        assets.add(asset);
+      }
+    } on FormatException {
+      preferences.remove('instruments');
+    }
     try {
       deliveries =
           (jsonDecode(preferences.getString('deliveries') ?? '[]') as List)
@@ -37,7 +49,27 @@ class MarketController extends ChangeNotifier {
   bool demo;
   Set<String> favorites;
   List<Json> deliveries = [];
-  List<MarketAsset> assets = [];
+  static String legacyIdentity(String value) => switch (value) {
+    '000001' || '000300' => 'sh-index-$value',
+    '510300' || '588000' => 'sh-etf-$value',
+    '159915' => 'sz-etf-$value',
+    _ => value,
+  };
+  List<MarketInstrument> assets = [
+    for (final row in [
+      ['510300', '沪深300ETF', 'ETF', '上交所'],
+      ['159915', '创业板ETF', 'ETF', '深交所'],
+      ['588000', '科创50ETF', 'ETF', '上交所'],
+      ['000300', '沪深300', '指数', '上交所'],
+      ['000001', '上证指数', '指数', '上交所'],
+    ])
+      MarketInstrument({
+        'symbol': row[0],
+        'name': row[1],
+        'kind': row[2],
+        'subtitle': row[3],
+      }),
+  ];
   MarketSnapshot? snapshot;
   String symbol = '510300';
   int horizon = 20;
@@ -52,20 +84,29 @@ class MarketController extends ChangeNotifier {
   Future<void> load({String? selectedSymbol}) async {
     final generation = ++_generation;
     if (selectedSymbol != null) symbol = selectedSymbol;
-    if (snapshot?.asset.symbol != symbol) snapshot = null;
+    final requested = symbol;
+    if (snapshot?.asset.id != requested &&
+        snapshot?.asset.symbol != requested) {
+      snapshot = null;
+    }
     loading = true;
     error = null;
     notifyListeners();
     try {
-      final updatedAssets = await _service.assets();
+      final updatedSnapshot = await _service.snapshot(requested);
       if (_disposed || generation != _generation) return;
-      final updatedSnapshot = await _service.snapshot(symbol);
-      if (_disposed || generation != _generation) return;
-      if (updatedSnapshot.asset.symbol != symbol) {
+      if (updatedSnapshot.asset.id != requested &&
+          updatedSnapshot.asset.symbol != requested) {
         throw const MarketException('接口返回的标的与请求不一致。');
       }
-      assets = updatedAssets;
       snapshot = updatedSnapshot;
+      symbol = updatedSnapshot.asset.id;
+      assets.removeWhere((item) => item.id == symbol);
+      assets.insert(0, updatedSnapshot.asset);
+      await preferences.setString(
+        'instruments',
+        jsonEncode(assets.map((asset) => asset.metadata).toList()),
+      );
     } catch (exception) {
       if (!_disposed && generation == _generation) error = exception.toString();
     } finally {
@@ -75,6 +116,12 @@ class MarketController extends ChangeNotifier {
       }
     }
   }
+
+  Future<InstrumentSearch> search(
+    String query, {
+    String? kind,
+    int offset = 0,
+  }) => _service.search(query, kind: kind, offset: offset);
 
   Future<void> setDark(bool value) async {
     dark = value;
@@ -93,6 +140,7 @@ class MarketController extends ChangeNotifier {
   }
 
   Future<void> toggleFavorite(String value) async {
+    value = legacyIdentity(value);
     if (!favorites.add(value)) favorites.remove(value);
     notifyListeners();
     await preferences.setStringList('favorites', favorites.toList());
@@ -115,8 +163,8 @@ class MarketController extends ChangeNotifier {
     baseUrl = address.trim().replaceFirst(RegExp(r'/+$'), '');
     demo = useDemo;
     _service = _makeService();
-    assets = [];
     snapshot = null;
+    if (useDemo) symbol = '510300';
     await preferences.setString('baseUrl', baseUrl);
     await load();
   }

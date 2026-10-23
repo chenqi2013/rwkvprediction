@@ -11,8 +11,9 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs, unquote
 from market_provider import MarketProvider, MarketUnavailable
+from instrument_catalog import InstrumentCatalog, CatalogUnavailable, instrument
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / 'rwkvprediction/rwkvprediction/Resources/market-demo.json'
@@ -55,16 +56,22 @@ def make_delivery(body):
     confidence = body.get('confidence', 80)
     if type(confidence) is not int or confidence not in (80, 95):
         raise ValueError('confidence must be 80 or 95')
-    if not isinstance(symbol, str) or symbol not in PROVIDER.fixtures['snapshots']:
+    if not isinstance(symbol, str):
         raise ValueError('Unknown symbol')
     if not isinstance(prediction_id, str):
         raise ValueError('prediction_id must be a string')
     with connect() as connection:
         saved = connection.execute('SELECT snapshot FROM forecasts WHERE id = ?', (prediction_id,)).fetchone()
     snapshot = json.loads(saved[0]) if saved else None
-    if snapshot is None and PROVIDER.mode == 'demo':
+    if snapshot is None and PROVIDER.mode == 'demo' and symbol in PROVIDER.fixtures['snapshots']:
         snapshot = PROVIDER.fixtures['snapshots'][symbol]
-    if not snapshot or snapshot['asset']['symbol'] != symbol or prediction_id not in [f['id'] for f in snapshot['predictions'].values()]:
+    requested_id = body.get('instrument_id', symbol)
+    saved_asset = snapshot['asset'] if snapshot else {}
+    saved_identity = None
+    if snapshot:
+        saved_identity = saved_asset.get('id') or instrument(saved_asset['symbol'], saved_asset['name'], saved_asset['kind'])['id']
+    identity_matches = requested_id == saved_identity if 'instrument_id' in body else requested_id == saved_asset.get('symbol')
+    if not snapshot or symbol != saved_asset.get('symbol') or not identity_matches or prediction_id not in [f['id'] for f in snapshot['predictions'].values()]:
         raise ValueError('Prediction does not belong to this symbol')
     if channel not in ('in_app', 'webhook_demo'):
         raise ValueError('channel must be in_app or webhook_demo')
@@ -76,6 +83,7 @@ def make_delivery(body):
                           decimals=3 if snapshot['asset']['kind'] == 'ETF' else 2, explanation=forecast['explanation'],
                           market_source=snapshot['source'], as_of=snapshot['as_of'])
     receipt = dict(id=str(uuid.uuid4()), prediction_id=prediction_id, symbol=symbol,
+                   instrument_id=saved_asset.get('id'),
                    asset_name=snapshot['asset']['name'], channel=channel,
                    created_at=datetime.now(timezone.utc).isoformat(), status='delivered', forecast=saved_forecast)
     with connect() as connection:
@@ -96,9 +104,13 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         try:
             self.get_response()
-        except MarketUnavailable as error:
+        except (MarketUnavailable, CatalogUnavailable) as error:
             self.log_error('%s: %s', error, error.__cause__)
             self.send_json(502, dict(error=str(error)))
+        except KeyError:
+            self.send_json(404, dict(error='未找到该标的，请从搜索结果中选择。'))
+        except ValueError as error:
+            self.send_json(400, dict(error=str(error)))
 
     def get_response(self):
         path = urlparse(self.path).path.rstrip('/')
@@ -106,10 +118,17 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(200, dict(status='ok', mode=PROVIDER.mode, market_source='akshare' if PROVIDER.mode == 'live' else 'mock', forecast_source='mock'))
         if path == '/v1/assets':
             return self.send_json(200, PROVIDER.assets())
+        if path == '/v1/instruments':
+            parameters = parse_qs(urlparse(self.path).query)
+            query = parameters.get('q', [''])[0].strip()
+            kind = parameters.get('kind', [None])[0]
+            limit = int(parameters.get('limit', ['50'])[0])
+            offset = int(parameters.get('offset', ['0'])[0])
+            if len(query) > 80 or not 1 <= limit <= 100 or not 0 <= offset <= 100000:
+                raise ValueError('Invalid search parameters')
+            return self.send_json(200, PROVIDER.search(query, kind, limit, offset))
         if path.startswith('/v1/markets/'):
-            symbol = path.rsplit('/', 1)[-1]
-            if symbol not in PROVIDER.fixtures['snapshots']:
-                return self.send_json(404, dict(error='Unknown symbol'))
+            symbol = unquote(path.rsplit('/', 1)[-1])
             return self.send_json(200, save_snapshot(PROVIDER.snapshot(symbol)))
         if path == '/v1/deliveries':
             with connect() as connection:
@@ -136,7 +155,10 @@ if __name__ == '__main__':
     parser.add_argument('--host', default='0.0.0.0')
     parser.add_argument('--mode', choices=['live', 'demo'], default='live')
     args = parser.parse_args()
-    PROVIDER = MarketProvider(payload(), mode=args.mode)
+    fixtures = payload()
+    catalog = InstrumentCatalog([instrument(asset['symbol'], asset['name'], asset['kind']) for asset in fixtures['assets']],
+                                cache_dir=Path(__file__).with_name('runtime') / 'catalog')
+    PROVIDER = MarketProvider(fixtures, mode=args.mode, catalog=catalog)
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f'Market API: http://{args.host}:{args.port} · {args.mode} market data · mock forecasts', flush=True)
     server.serve_forever()

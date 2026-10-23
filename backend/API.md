@@ -9,14 +9,37 @@
 | 方法 | 路径 | 返回 |
 | --- | --- | --- |
 | GET | `/health` | `{"status":"ok","mode":"live","market_source":"akshare","forecast_source":"mock"}` |
-| GET | `/v1/assets` | 可搜索的 ETF／指数数组 |
-| GET | `/v1/markets/{symbol}` | 报价、历史价格、三个周期的完整预测 |
+| GET | `/v1/assets` | 兼容旧客户端的 5 个精选标的报价 |
+| GET | `/v1/instruments?q=名称或代码&kind=股票&limit=50&offset=0` | 搜索元数据，不批量获取报价 |
+| GET | `/v1/markets/{instrument_id}` | 所选标的报价、历史价格、三个周期的完整预测 |
 | POST | `/v1/deliveries` | 创建演示下发，201 + 持久化回执 |
 | GET | `/v1/deliveries` | 当前服务器保存的下发回执，最新在前 |
 
 未找到的标的／路径返回 404。AKShare 上游失败或返回非法日线时返回 502，不自动降级成模拟行情。健康端点仅确认进程运行和模式，不代表上游可用。下发参数错误返回 400，空请求或请求体大于 16KB 返回 413。错误格式：`{"error":"描述"}`。当前无认证，默认绑定 `0.0.0.0` 支持局域网真机联调；仅在受信任网络中运行，仅需本机访问时可指定 `--host 127.0.0.1`。
 
-行情使用最近 61 根完整、不复权日线。北京时间 15:10 前过滤当日日线，防止把盘中数据当作收盘；报价采用最后一根日线，涨跌幅对比前一根收盘，开高低和成交额来自同一根。每标的缓存 300 秒，到期后下一次请求重新获取。默认优先使用东方财富接口；其连接被临时断开时，自动使用 AKShare 新浪历史接口作为备用源。新浪指数接口不提供成交额时返回 `--`，不填造数据；两个数据源都失败才返回 502。
+行情最多返回最近 61 根完整、不复权日线；新上市标的使用实际可用历史，少于 2 根时返回 502。北京时间 15:10 前过滤当日日线，防止把盘中数据当作收盘；报价采用最后一根日线，涨跌幅对比前一根收盘，开高低和成交额来自同一根。每标的缓存 300 秒，到期后下一次请求重新获取。默认优先使用东方财富接口；其连接被临时断开时，自动使用 AKShare 新浪历史接口作为备用源。新浪指数接口不提供成交额时返回 `--`，不填造数据；两个数据源都失败才返回 502。新浪历史解码调用串行执行，避免原生 JavaScript 解码库在并发调用时崩溃。
+
+## 搜索与标的身份
+
+`GET /v1/instruments` 支持 A 股、场内 ETF 及指数的名称／六位代码包含匹配，也支持 `sh600519` 这样的市场前缀。`kind` 可省略，或为 `ETF`、`指数`、`股票`；`limit` 为 1–100，默认 50；`offset` 为非负偏移。暂不包含港美股、拼音搜索。
+
+```json
+{
+  "items": [
+    {"id":"sh-index-000001","symbol":"000001","name":"上证指数","kind":"指数","market":"sh","subtitle":"上交所","currency":"CNY"},
+    {"id":"sz-stock-000001","symbol":"000001","name":"平安银行","kind":"股票","market":"sz","subtitle":"深交所","currency":"CNY"}
+  ],
+  "total": 2,
+  "limit": 50,
+  "offset": 0,
+  "has_more": false,
+  "warnings": []
+}
+```
+
+客户端选择搜索结果后，请用其完整 `id` 调用 `/v1/markets/sz-stock-000001`。缓存、自选、预测 ID 均包含市场和类别，避免上证指数与平安银行同码混淆。原来 5 个数字代码路径保留兼容，其中 `/v1/markets/000001` 仍为上证指数。其他新增标的使用完整 ID。
+
+名单分别来自 AKShare 的 `stock_info_a_code_name`、`fund_etf_category_sina(symbol="ETF基金")`、`index_stock_info`。元数据缓存 24 小时并持久化到 `backend/runtime/catalog/`，首次搜索会按类别并发加载名单，最多等待 20 秒。某类名单不可用或过期时返回 `warnings`，客户端应展示提示；所请求类别均无可用名单时返回 502，不能当作“没有找到”。离线演示仍只有 5 个样例。
 
 ## 标的与行情
 
@@ -39,7 +62,7 @@
 }
 ```
 
-`kind` 是 `ETF` 或 `指数`，ETF 价格显示 3 位小数，指数显示 2 位。`change_percent` 的单位为百分比数值（1.32 表示 +1.32%）。`volume` 为已格式化成交额文本；历史点的 `volume` 是数值。生产接入可进一步统一成交额、成交量及单位。
+`kind` 是 `ETF`、`指数` 或 `股票`，ETF 价格显示 3 位小数，指数和股票显示 2 位。`asset` 另含搜索结果中的 `id`、`market`。`change_percent` 的单位为百分比数值（1.32 表示 +1.32%）。`volume` 为已格式化成交额文本；历史点的 `volume` 是数值。生产接入可进一步统一成交额、成交量及单位。
 
 `GET /v1/markets/510300` 返回：
 
@@ -69,7 +92,7 @@
 
 ```text
 {
-  id: "mock-akshare-510300-20-<行情内容摘要>",
+  id: "mock-akshare-sh-etf-510300-20-<行情内容摘要>",
   horizon: 20,
   points: [{
     date: "2026-10-23",
@@ -118,13 +141,14 @@
 ```json
 {
   "symbol": "510300",
+  "instrument_id": "sh-etf-510300",
   "prediction_id": "请替换成最近获取的 predictions[周期].id",
   "confidence": 95,
   "channel": "in_app"
 }
 ```
 
-`confidence` 为 80 或 95，省略时默认 80。`channel` 为 `in_app` 或 `webhook_demo`。客户端须先 GET 市场快照并使用其实际预测 ID；真实行情模式不接受离线模拟 ID。服务器将已经返回的预测保存在 SQLite，行情刷新后旧 ID 仍对应原来的行情与预测，避免内容漂移。
+`confidence` 为 80 或 95，省略时默认 80。`channel` 为 `in_app` 或 `webhook_demo`。新增客户端同时发送六位 `symbol` 和完整 `instrument_id`，服务器校验其与预测快照一致；旧客户端可省略 `instrument_id`。客户端须先 GET 市场快照并使用其实际预测 ID；真实行情模式不接受离线模拟 ID。服务器将已经返回的预测保存在 SQLite，行情刷新后旧 ID 仍对应原来的行情与预测，避免内容漂移。
 
 回执：
 
@@ -160,7 +184,7 @@
 
 ## AKShare 接入位置
 
-`akshare_adapter.py` 已参与默认服务：ETF 优先使用 `fund_etf_hist_em(adjust="")`，指数优先使用 `stock_zh_index_daily_em`；失败后分别尝试 `fund_etf_hist_sina`／`stock_zh_index_daily`。快照的 `market_vendor` 为 `eastmoney` 或 `sina`，只表示 AKShare 上游行情来源，不输出任何预测。
+`akshare_adapter.py` 已参与默认服务：ETF 优先使用 `fund_etf_hist_em(adjust="")`，指数优先使用 `stock_zh_index_daily_em`，A 股优先使用 `stock_zh_a_hist(adjust="")`；失败后分别尝试 `fund_etf_hist_sina`／`stock_zh_index_daily`／`stock_zh_a_daily(adjust="")`。快照的 `market_vendor` 为 `eastmoney` 或 `sina`，只表示 AKShare 上游行情来源，不输出任何预测。
 
 - [ETF 行情与历史接口文档](https://akshare.akfamily.xyz/data/fund/fund_public.html)
 - [指数行情与历史接口文档](https://akshare.akfamily.xyz/data/index/index.html)
