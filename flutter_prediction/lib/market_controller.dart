@@ -3,16 +3,24 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'api_request_log.dart';
 import 'market_service.dart';
 import 'models.dart';
 
 class MarketController extends ChangeNotifier {
-  MarketController(this.preferences, {MarketService? service})
-    : dark = preferences.getBool('dark') ?? true,
-      baseUrl = preferences.getString('baseUrl') ?? defaultBaseUrl,
-      demo = const bool.fromEnvironment('DEMO_MODE'),
-      favorites = (preferences.getStringList('favorites') ?? []).toSet() {
+  MarketController(
+    this.preferences, {
+    MarketService? service,
+    ApiRequestLog? requestLog,
+  }) : requestLog = requestLog ?? ApiRequestLog(),
+       dark = preferences.getBool('dark') ?? true,
+       baseUrl = preferences.getString('baseUrl') ?? defaultBaseUrl,
+       demo = const bool.fromEnvironment('DEMO_MODE'),
+       favorites = (preferences.getStringList('favorites') ?? []).toSet() {
     _service = service ?? _makeService();
+    if (_service is HttpMarketService) {
+      (_service as HttpMarketService).requestLog = this.requestLog;
+    }
     favorites = favorites.map(legacyIdentity).toSet();
     try {
       final saved =
@@ -43,6 +51,7 @@ class MarketController extends ChangeNotifier {
   }
 
   final SharedPreferences preferences;
+  final ApiRequestLog requestLog;
   late MarketService _service;
   bool dark;
   String baseUrl;
@@ -79,8 +88,9 @@ class MarketController extends ChangeNotifier {
   int _generation = 0;
   bool _disposed = false;
   Forecast? get forecast => snapshot?.predictions[horizon];
-  MarketService _makeService() =>
-      demo ? DemoMarketService() : HttpMarketService(baseUrl);
+  MarketService _makeService() => demo
+      ? DemoMarketService()
+      : HttpMarketService(baseUrl, requestLog: requestLog);
   Future<void> load({String? selectedSymbol}) async {
     final generation = ++_generation;
     if (selectedSymbol != null) symbol = selectedSymbol;
@@ -191,6 +201,7 @@ class MarketController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _service.close();
+    requestLog.dispose();
     super.dispose();
   }
 }

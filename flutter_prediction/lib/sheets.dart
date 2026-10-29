@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'api_export_page.dart';
 import 'market_controller.dart';
 import 'models.dart';
 import 'theme.dart';
@@ -150,6 +151,24 @@ class _SettingsSheetState extends State<SettingsSheet> {
               style: TextStyle(fontSize: 11, color: colors.secondary),
             ),
             const SizedBox(height: 28),
+            ListTile(
+              key: const ValueKey('api-export-entry'),
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(Icons.folder_zip_outlined, color: colors.orange),
+              title: const Text('接口数据导出与分享', style: TextStyle(fontSize: 15)),
+              subtitle: const Text(
+                '每次请求一个 JSON，支持单独分享或打包导出',
+                style: TextStyle(fontSize: 11),
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) =>
+                      ApiExportPage(log: widget.controller.requestLog),
+                ),
+              ),
+            ),
+            const SizedBox(height: 28),
             const Text(
               '行情服务地址',
               style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
@@ -240,10 +259,12 @@ class _AssetPickerState extends State<AssetPicker> {
   String? error;
   Timer? debounce;
   int generation = 0;
+  final ScrollController scrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
+    scrollController.addListener(loadMoreIfNeeded);
     if (!widget.favoritesOnly) {
       searching = true;
       fetch(++generation);
@@ -253,8 +274,26 @@ class _AssetPickerState extends State<AssetPicker> {
   @override
   void dispose() {
     debounce?.cancel();
+    scrollController.dispose();
     ++generation;
     super.dispose();
+  }
+
+  void loadMoreIfNeeded() {
+    if (scrollController.hasClients &&
+        scrollController.position.extentAfter <= 80 &&
+        error == null) {
+      loadMore();
+    }
+  }
+
+  void loadMore() {
+    if (widget.favoritesOnly || searching || !hasMore) return;
+    setState(() {
+      searching = true;
+      error = null;
+    });
+    fetch(generation, more: true);
   }
 
   void search({bool immediate = false}) {
@@ -293,6 +332,9 @@ class _AssetPickerState extends State<AssetPicker> {
         hasMore = response.hasMore;
         total = response.total;
         searching = false;
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && revision == generation) loadMoreIfNeeded();
       });
     } catch (exception) {
       if (!mounted || revision != generation) return;
@@ -372,8 +414,10 @@ class _AssetPickerState extends State<AssetPicker> {
                       style: TextStyle(fontSize: 12, color: colors.red),
                     ),
                     TextButton(
-                      onPressed: () => search(immediate: true),
-                      child: const Text('重试搜索'),
+                      onPressed: results.isEmpty
+                          ? () => search(immediate: true)
+                          : loadMore,
+                      child: Text(results.isEmpty ? '重试搜索' : '重试加载'),
                     ),
                   ],
                 ),
@@ -391,21 +435,14 @@ class _AssetPickerState extends State<AssetPicker> {
                       ),
                     )
                   : ListView.separated(
+                      controller: scrollController,
                       itemCount: filtered.length + (hasMore ? 1 : 0),
                       separatorBuilder: (_, _) =>
                           const Divider(height: 1, indent: 20, endIndent: 20),
                       itemBuilder: (context, index) {
                         if (index == filtered.length) {
                           return TextButton(
-                            onPressed: searching
-                                ? null
-                                : () {
-                                    setState(() {
-                                      searching = true;
-                                      error = null;
-                                    });
-                                    fetch(++generation, more: true);
-                                  },
+                            onPressed: searching ? null : loadMore,
                             child: Text(
                               searching ? '正在加载…' : '加载更多（共 $total 个）',
                             ),

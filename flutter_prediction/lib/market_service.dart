@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 
+import 'api_request_log.dart';
 import 'models.dart';
 
 class MarketException implements Exception {
@@ -27,24 +28,31 @@ abstract class MarketService {
 }
 
 class HttpMarketService extends MarketService {
-  HttpMarketService(this.baseUrl, {http.Client? client})
+  HttpMarketService(this.baseUrl, {http.Client? client, this.requestLog})
     : client = client ?? http.Client();
   final String baseUrl;
   final http.Client client;
+  ApiRequestLog? requestLog;
 
   Future<dynamic> request(String path, {Json? body}) async {
     final uri = Uri.parse('${baseUrl.replaceFirst(RegExp(r'/+$'), '')}/$path');
+    final started = DateTime.now().toUtc();
+    final elapsed = Stopwatch()..start();
+    final bodyText = body == null ? null : jsonEncode(body);
+    http.Response? response;
+    dynamic decoded;
+    String? failure;
     try {
-      final response =
+      response =
           await (body == null
                   ? client.get(uri)
                   : client.post(
                       uri,
                       headers: {'Content-Type': 'application/json'},
-                      body: jsonEncode(body),
+                      body: bodyText,
                     ))
               .timeout(const Duration(seconds: 30));
-      final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+      decoded = jsonDecode(utf8.decode(response.bodyBytes));
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw MarketException(
           decoded is Map ? decoded['error'] ?? '行情服务返回异常' : '行情服务返回异常',
@@ -52,13 +60,49 @@ class HttpMarketService extends MarketService {
       }
       return decoded;
     } on TimeoutException {
-      throw const MarketException('行情服务响应超时，请稍后重试。');
+      failure = '行情服务响应超时，请稍后重试。';
+      throw MarketException(failure);
     } on http.ClientException {
-      throw MarketException(
-        '无法连接 $baseUrl。手机请填写电脑局域网 IP，确认同一 Wi-Fi、后端已启动并允许本地网络访问。',
-      );
+      failure = '无法连接 $baseUrl。手机请填写电脑局域网 IP，确认同一 Wi-Fi、后端已启动并允许本地网络访问。';
+      throw MarketException(failure);
     } on FormatException {
-      throw const MarketException('行情接口返回的数据格式无效。');
+      failure = '行情接口返回的数据格式无效。';
+      throw MarketException(failure);
+    } catch (exception) {
+      failure = exception.toString();
+      rethrow;
+    } finally {
+      elapsed.stop();
+      await requestLog?.record({
+        'schema_version': 1,
+        'started_at': started.toIso8601String(),
+        'completed_at': DateTime.now().toUtc().toIso8601String(),
+        'duration_ms': elapsed.elapsedMilliseconds,
+        'request': {
+          'method': body == null ? 'GET' : 'POST',
+          'url': uri.toString(),
+          'path': uri.path,
+          'query_parameters': uri.queryParametersAll,
+          'headers': {if (body != null) 'Content-Type': 'application/json'},
+          'body': bodyText == null ? null : jsonDecode(bodyText),
+          'body_text': bodyText,
+        },
+        'response': response == null
+            ? null
+            : {
+                'status_code': response.statusCode,
+                'headers': response.headers,
+                'body': decoded,
+                'body_text': utf8.decode(
+                  response.bodyBytes,
+                  allowMalformed: true,
+                ),
+                'body_base64': base64Encode(response.bodyBytes),
+              },
+        'error': failure,
+        'data_note':
+            '实际 HTTP 请求与响应。行情来源以响应 source 为准；预测、解读、回测与用量仍为模拟。离线演示不产生 HTTP 记录。',
+      });
     }
   }
 

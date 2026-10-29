@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'api_request_log.dart';
 import 'market_controller.dart';
 import 'market_page.dart';
 import 'theme.dart';
@@ -10,7 +11,13 @@ import 'theme.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final preferences = await SharedPreferences.getInstance();
-  runApp(PredictionApp(controller: MarketController(preferences)));
+  final requestLog = ApiRequestLog();
+  await requestLog.initialize();
+  runApp(
+    PredictionApp(
+      controller: MarketController(preferences, requestLog: requestLog),
+    ),
+  );
 }
 
 class PredictionApp extends StatelessWidget {

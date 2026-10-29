@@ -13,6 +13,12 @@ import 'package:rwkv_prediction/market_service.dart';
 import 'package:rwkv_prediction/models.dart';
 import 'package:rwkv_prediction/forecast_chart.dart';
 import 'package:rwkv_prediction/sheets.dart';
+import 'package:rwkv_prediction/api_request_log.dart';
+
+class NoDiskRequestLog extends ApiRequestLog {
+  @override
+  Future<void> record(Json document) async {}
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -193,7 +199,11 @@ void main() {
       );
       final result = await service.search('平安 银行', kind: '股票', offset: 50);
       expect(result.items.single.id, 'sz-stock-000001');
-      final controller = MarketController(preferences, service: service);
+      final controller = MarketController(
+        preferences,
+        service: service,
+        requestLog: NoDiskRequestLog(),
+      );
       await controller.load(selectedSymbol: result.items.single.id);
       expect(controller.error, isNull);
       expect(controller.snapshot!.asset.kind, '股票');
@@ -252,7 +262,11 @@ void main() {
           return response.future;
         }),
       );
-      final controller = MarketController(preferences, service: service);
+      final controller = MarketController(
+        preferences,
+        service: service,
+        requestLog: NoDiskRequestLog(),
+      );
       http.Response response(List<Json> items) => http.Response.bytes(
         utf8.encode(
           jsonEncode({
@@ -301,6 +315,111 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('股票名单获取失败'), findsOneWidget);
       expect(find.text('没有找到相关标的'), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+    },
+  );
+
+  testWidgets(
+    'picker loads pages on scroll, avoids duplicate requests and retries in place',
+    (tester) async {
+      final offsets = <int>[];
+      final responses = <Completer<http.Response>>[];
+      final service = HttpMarketService(
+        'http://localhost:8787',
+        client: MockClient((request) {
+          offsets.add(int.parse(request.url.queryParameters['offset']!));
+          final response = Completer<http.Response>();
+          responses.add(response);
+          return response.future;
+        }),
+      );
+      final controller = MarketController(
+        preferences,
+        service: service,
+        requestLog: NoDiskRequestLog(),
+      );
+      http.Response page(int offset, {required bool hasMore}) =>
+          http.Response.bytes(
+            utf8.encode(
+              jsonEncode({
+                'items': List.generate(20, (index) {
+                  final symbol = (600000 + offset + index).toString();
+                  return {
+                    'id': 'sh-stock-$symbol',
+                    'symbol': symbol,
+                    'name': '测试股票$symbol',
+                    'kind': '股票',
+                    'market': 'sh',
+                    'subtitle': '上交所',
+                  };
+                }),
+                'total': 60,
+                'has_more': hasMore,
+                'warnings': [],
+              }),
+            ),
+            200,
+          );
+      Future<void> scrollToBottom() async {
+        final list = tester.widget<ListView>(find.byType(ListView));
+        list.controller!.jumpTo(list.controller!.position.maxScrollExtent);
+        await tester.pumpAndSettle();
+      }
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: AssetPicker(controller: controller)),
+        ),
+      );
+      responses[0].complete(page(0, hasMore: true));
+      await tester.pumpAndSettle();
+      expect(offsets, [0]);
+
+      await scrollToBottom();
+      expect(offsets, [0, 20]);
+      await tester.drag(find.byType(ListView), const Offset(0, -300));
+      await tester.pumpAndSettle();
+      expect(offsets, [0, 20]);
+
+      responses[1].complete(
+        http.Response.bytes(utf8.encode(jsonEncode({'error': '分页加载失败'})), 502),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('分页加载失败'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('asset-sh-stock-600019')),
+        findsOneWidget,
+      );
+      await scrollToBottom();
+      expect(offsets, [0, 20]);
+      await tester.tap(find.text('重试加载'));
+      await tester.pump();
+      expect(offsets, [0, 20, 20]);
+
+      responses[2].complete(page(20, hasMore: true));
+      await tester.pumpAndSettle();
+      expect(find.text('分页加载失败'), findsNothing);
+      final list = tester.widget<ListView>(find.byType(ListView));
+      list.controller!.jumpTo(0);
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('asset-sh-stock-600000')),
+        findsOneWidget,
+      );
+      await scrollToBottom();
+      expect(offsets, [0, 20, 20, 40]);
+
+      responses[3].complete(page(40, hasMore: false));
+      await tester.pumpAndSettle();
+      await scrollToBottom();
+      expect(
+        find.byKey(const ValueKey('asset-sh-stock-600059')),
+        findsOneWidget,
+      );
+      expect(offsets, [0, 20, 20, 40]);
+      expect(find.textContaining('加载更多'), findsNothing);
+      expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
       controller.dispose();
     },
