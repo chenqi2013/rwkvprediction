@@ -149,10 +149,25 @@ class MarketController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> toggleFavorite(String value) async {
+  Future<void> toggleFavorite(
+    String value, {
+    MarketInstrument? instrument,
+  }) async {
     value = legacyIdentity(value);
-    if (!favorites.add(value)) favorites.remove(value);
+    final added = favorites.add(value);
+    if (!added) favorites.remove(value);
+    final rememberInstrument =
+        added &&
+        instrument != null &&
+        !assets.any((asset) => asset.id == value);
+    if (rememberInstrument) assets.add(instrument);
     notifyListeners();
+    if (rememberInstrument) {
+      await preferences.setString(
+        'instruments',
+        jsonEncode(assets.map((asset) => asset.metadata).toList()),
+      );
+    }
     await preferences.setStringList('favorites', favorites.toList());
   }
 

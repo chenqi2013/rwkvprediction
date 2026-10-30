@@ -379,20 +379,59 @@ class _AssetPickerState extends State<AssetPicker> {
                 ),
               ),
             ),
-            SegmentedButton<String>(
-              segments: ['全部', 'ETF', '指数', '股票']
-                  .map(
-                    (value) => ButtonSegment(value: value, label: Text(value)),
-                  )
-                  .toList(),
-              selected: {category},
-              showSelectedIcon: false,
-              onSelectionChanged: (value) {
-                category = value.first;
-                search(immediate: true);
-              },
+            Row(
+              children: ['全部', 'ETF', '指数', '股票'].map((value) {
+                final selected = category == value;
+                return Expanded(
+                  child: InkWell(
+                    onTap: () {
+                      category = value;
+                      search(immediate: true);
+                    },
+                    child: Container(
+                      alignment: Alignment.center,
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                      decoration: BoxDecoration(
+                        border: Border(
+                          bottom: BorderSide(
+                            color: selected ? colors.orange : colors.line,
+                            width: selected ? 2 : .6,
+                          ),
+                        ),
+                      ),
+                      child: Text(
+                        value,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: selected
+                              ? FontWeight.w600
+                              : FontWeight.normal,
+                          color: selected ? colors.orange : colors.secondary,
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
             ),
-            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              color: colors.canvas,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      widget.favoritesOnly ? '自选名称 / 代码' : '名称 / 代码',
+                      style: TextStyle(fontSize: 11, color: colors.secondary),
+                    ),
+                  ),
+                  Text(
+                    '自选',
+                    style: TextStyle(fontSize: 11, color: colors.secondary),
+                  ),
+                ],
+              ),
+            ),
             if (warnings.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(
@@ -453,8 +492,10 @@ class _AssetPickerState extends State<AssetPicker> {
                           key: ValueKey('asset-${asset.id}'),
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 20,
-                            vertical: 9,
+                            vertical: 3,
                           ),
+                          selected: model.snapshot?.asset.id == asset.id,
+                          selectedTileColor: colors.orangeSoft,
                           onTap: () {
                             Navigator.pop(context);
                             model.load(selectedSymbol: asset.id);
@@ -484,14 +525,23 @@ class _AssetPickerState extends State<AssetPicker> {
                               ),
                             ),
                           ),
-                          trailing: Icon(
-                            model.symbol == asset.id
-                                ? Icons.check
-                                : Icons.chevron_right,
-                            color: model.symbol == asset.id
-                                ? colors.orange
-                                : colors.secondary,
-                            size: 18,
+                          trailing: IconButton(
+                            tooltip: model.favorites.contains(asset.id)
+                                ? '移出自选'
+                                : '加入自选',
+                            onPressed: () => model.toggleFavorite(
+                              asset.id,
+                              instrument: asset,
+                            ),
+                            icon: Icon(
+                              model.favorites.contains(asset.id)
+                                  ? Icons.star_rounded
+                                  : Icons.star_outline_rounded,
+                              color: model.favorites.contains(asset.id)
+                                  ? colors.orange
+                                  : colors.secondary,
+                              size: 22,
+                            ),
                           ),
                         );
                       },

@@ -301,6 +301,19 @@ void main() {
         find.byKey(const ValueKey('asset-sh-index-000001')),
         findsOneWidget,
       );
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(const ValueKey('asset-sz-stock-000001')),
+          matching: find.byType(IconButton),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(controller.favorites, contains('sz-stock-000001'));
+      expect(
+        controller.assets.any((asset) => asset.id == 'sz-stock-000001'),
+        isTrue,
+      );
+      expect(preferences.getString('instruments'), contains('sz-stock-000001'));
       requests['']!.complete(response([]));
       await tester.pumpAndSettle();
       expect(find.text('平安银行'), findsOneWidget);
@@ -440,6 +453,17 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('走势预测'), findsOneWidget);
       expect(find.text('模拟行情 · 离线演示'), findsWidgets);
+      if (size.width >= 1100) {
+        expect(find.text('最近浏览'), findsOneWidget);
+      }
+      await tester.tap(find.byKey(const ValueKey('quick-sz-etf-159915')));
+      await tester.pumpAndSettle();
+      expect(controller.snapshot?.asset.symbol, '159915');
+      await tester.tap(find.byIcon(Icons.candlestick_chart_outlined));
+      await tester.pumpAndSettle();
+      expect(find.text('历史行情'), findsOneWidget);
+      await tester.tap(find.byIcon(Icons.graphic_eq).last);
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('horizon-5')));
       await tester.pumpAndSettle();
       expect(controller.horizon, 5);
@@ -471,6 +495,12 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('搜索 ETF、指数和股票'));
       await tester.pumpAndSettle();
+      final indexRow = find.byKey(const ValueKey('asset-sh-index-000300'));
+      await tester.tap(
+        find.descendant(of: indexRow, matching: find.byType(IconButton)),
+      );
+      await tester.pumpAndSettle();
+      expect(controller.favorites, contains('sh-index-000300'));
       await tester.tap(find.byKey(const ValueKey('asset-sh-index-000300')));
       await tester.pumpAndSettle();
       expect(controller.snapshot?.asset.symbol, '000300');

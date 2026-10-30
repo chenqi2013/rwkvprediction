@@ -189,6 +189,7 @@ class _ChartPainter extends CustomPainter {
           style: TextStyle(
             color: color,
             fontSize: fontSize,
+            fontFamily: 'Roboto',
             fontFamilyFallback: const ['PingFang SC', 'Microsoft YaHei'],
           ),
         ),

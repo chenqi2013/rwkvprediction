@@ -62,26 +62,37 @@ class _MarketPageState extends State<MarketPage> {
                 backgroundColor: colors.line,
               ),
             Expanded(
-              child: RefreshIndicator(
-                onRefresh: model.load,
-                color: colors.orange,
-                child: Scrollbar(
-                  controller: scrollController,
-                  child: ListView(
-                    controller: scrollController,
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    children: [
-                      Center(
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 1240),
-                          child: model.snapshot != null
-                              ? _content(context)
-                              : _empty(context),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (MediaQuery.sizeOf(context).width >= 1100)
+                    _watchlist(sidebar: true),
+                  Expanded(
+                    child: RefreshIndicator(
+                      onRefresh: model.load,
+                      color: colors.orange,
+                      child: Scrollbar(
+                        controller: scrollController,
+                        child: ListView(
+                          controller: scrollController,
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          children: [
+                            Center(
+                              child: ConstrainedBox(
+                                constraints: const BoxConstraints(
+                                  maxWidth: 1240,
+                                ),
+                                child: model.snapshot != null
+                                    ? _content(context)
+                                    : _empty(context),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    ],
+                    ),
                   ),
-                ),
+                ],
               ),
             ),
             _bottomBar(context),
@@ -93,53 +104,66 @@ class _MarketPageState extends State<MarketPage> {
 
   Widget _navigation(BuildContext context) {
     final colors = MarketColors.of(context);
+    final wide = MediaQuery.sizeOf(context).width >= 900;
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
       child: Row(
         children: [
-          Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(
-              color: colors.action,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(
-              Icons.graphic_eq_rounded,
-              color: colors.onAction,
-              size: 24,
-            ),
+          Icon(
+            Icons.stacked_line_chart_rounded,
+            color: colors.orange,
+            size: 28,
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 8),
           const Text(
             '知势',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 1,
-            ),
+            style: TextStyle(fontSize: 21, fontWeight: FontWeight.w700),
           ),
-          const SizedBox(width: 8),
-          Text(
-            'RWKV',
-            style: TextStyle(
-              color: colors.secondary,
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 1.2,
-            ),
-          ),
-          const Spacer(),
-          if (MediaQuery.sizeOf(context).width >= 700)
+          if (wide) ...[
+            const SizedBox(width: 10),
             Text(
-              '让不确定性，看得见',
-              style: TextStyle(fontSize: 12, color: colors.secondary),
+              'RWKV · 市场预测',
+              style: TextStyle(color: colors.secondary, fontSize: 12),
             ),
-          const SizedBox(width: 8),
-          IconButton(
-            tooltip: '设置',
-            onPressed: () => show(SettingsSheet(controller: model)),
-            icon: const Icon(Icons.settings_outlined, size: 22),
+          ],
+          const SizedBox(width: 20),
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 320),
+                child: Tooltip(
+                  message: '搜索 ETF、指数和股票',
+                  child: InkWell(
+                    onTap: assets,
+                    borderRadius: BorderRadius.circular(6),
+                    child: Container(
+                      height: 34,
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      decoration: BoxDecoration(
+                        color: colors.canvas,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.search, color: colors.secondary, size: 19),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              wide ? '搜索名称 / 代码' : '搜索标的',
+                              style: TextStyle(
+                                color: colors.secondary,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
           ),
           IconButton(
             tooltip: '下发记录',
@@ -148,14 +172,132 @@ class _MarketPageState extends State<MarketPage> {
               isLabelVisible: model.deliveries.isNotEmpty,
               smallSize: 5,
               backgroundColor: colors.orange,
-              child: const Icon(Icons.inbox_outlined, size: 23),
+              child: const Icon(Icons.notifications_none_rounded, size: 22),
             ),
           ),
           IconButton(
-            tooltip: '搜索 ETF、指数和股票',
-            onPressed: assets,
-            icon: const Icon(Icons.search_rounded, size: 24),
+            tooltip: '设置',
+            onPressed: () => show(SettingsSheet(controller: model)),
+            icon: const Icon(Icons.settings_outlined, size: 21),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _watchlist({bool sidebar = false}) {
+    final colors = MarketColors.of(context);
+    // Only display metadata here: unrequested instruments have no current quote.
+    final items = model.assets.take(12).toList();
+    Widget entry(MarketInstrument asset) {
+      final selected = model.snapshot?.asset.id == asset.id;
+      return InkWell(
+        key: ValueKey('quick-${asset.id}'),
+        onTap: () => model.load(selectedSymbol: asset.id),
+        child: Container(
+          width: sidebar ? null : 136,
+          padding: EdgeInsets.symmetric(
+            horizontal: 14,
+            vertical: sidebar ? 15 : 10,
+          ),
+          decoration: BoxDecoration(
+            color: selected ? colors.orangeSoft : Colors.transparent,
+            border: sidebar
+                ? Border(
+                    left: BorderSide(
+                      color: selected ? colors.orange : Colors.transparent,
+                      width: 3,
+                    ),
+                  )
+                : Border(
+                    bottom: BorderSide(
+                      color: selected ? colors.orange : Colors.transparent,
+                      width: 2,
+                    ),
+                  ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      asset.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: selected ? colors.orange : colors.ink,
+                      ),
+                    ),
+                  ),
+                  if (sidebar && model.favorites.contains(asset.id))
+                    Icon(Icons.star_rounded, size: 14, color: colors.orange),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${asset.market.toUpperCase()} ${asset.symbol}',
+                style: TextStyle(fontSize: 10, color: colors.secondary),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (!sidebar) {
+      return Container(
+        color: colors.surface,
+        height: 62,
+        child: ListView(
+          scrollDirection: Axis.horizontal,
+          children: items.map(entry).toList(),
+        ),
+      );
+    }
+    return Container(
+      width: 220,
+      decoration: BoxDecoration(
+        color: colors.surface,
+        border: Border(right: BorderSide(color: colors.line)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 4, 8),
+            child: Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    '最近浏览',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                  ),
+                ),
+                IconButton(
+                  tooltip: '查看我的自选',
+                  onPressed: () => assets(favoritesOnly: true),
+                  icon: Icon(
+                    Icons.star_border_rounded,
+                    size: 19,
+                    color: colors.orange,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(child: ListView(children: items.map(entry).toList())),
+          TextButton.icon(
+            onPressed: assets,
+            icon: const Icon(Icons.add, size: 17),
+            label: const Text('添加 / 搜索标的'),
+          ),
+          const SizedBox(height: 10),
         ],
       ),
     );
@@ -206,6 +348,7 @@ class _MarketPageState extends State<MarketPage> {
     final colors = MarketColors.of(context);
     return Column(
       children: [
+        if (MediaQuery.sizeOf(context).width < 1100) _watchlist(),
         _quote(snapshot),
         Container(
           color: colors.surface,
@@ -222,7 +365,7 @@ class _MarketPageState extends State<MarketPage> {
                           Text(
                             entry.$2,
                             style: TextStyle(
-                              fontSize: 14,
+                              fontSize: 15,
                               color: section == entry.$1
                                   ? colors.ink
                                   : colors.secondary,
@@ -280,27 +423,27 @@ class _MarketPageState extends State<MarketPage> {
                   _forecast(snapshot, forecast)
                 else
                   _insight(forecast, expanded: true),
-                const SizedBox(height: 16),
+                const SizedBox(height: 8),
                 if (section == 0)
                   _marketDetails(snapshot.asset)
                 else
                   _scenarios(snapshot.asset, forecast),
                 if (!wide && section != 0) ...[
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 8),
                   if (section == 1) _insight(forecast),
-                  if (section == 1) const SizedBox(height: 16),
+                  if (section == 1) const SizedBox(height: 8),
                   _evaluation(forecast),
                 ],
               ],
             );
             return Padding(
-              padding: const EdgeInsets.all(16),
+              padding: EdgeInsets.all(wide ? 12 : 0),
               child: wide
                   ? Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Expanded(flex: 8, child: left),
-                        const SizedBox(width: 16),
+                        const SizedBox(width: 10),
                         Expanded(
                           flex: 5,
                           child: Column(
@@ -309,7 +452,7 @@ class _MarketPageState extends State<MarketPage> {
                                 _insight(forecast)
                               else if (section == 0)
                                 _insight(forecast),
-                              if (section != 2) const SizedBox(height: 16),
+                              if (section != 2) const SizedBox(height: 8),
                               _evaluation(forecast),
                             ],
                           ),
@@ -355,7 +498,7 @@ class _MarketPageState extends State<MarketPage> {
     final priceColor = asset.changePercent >= 0 ? colors.red : colors.green;
     return Container(
       color: colors.surface,
-      padding: const EdgeInsets.fromLTRB(22, 12, 22, 14),
+      padding: const EdgeInsets.fromLTRB(18, 14, 18, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -369,11 +512,15 @@ class _MarketPageState extends State<MarketPage> {
                     children: [
                       Row(
                         children: [
-                          Text(
-                            asset.name,
-                            style: const TextStyle(
-                              fontSize: 21,
-                              fontWeight: FontWeight.w600,
+                          Flexible(
+                            child: Text(
+                              asset.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 21,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
                           const SizedBox(width: 8),
@@ -407,68 +554,106 @@ class _MarketPageState extends State<MarketPage> {
               ),
             ],
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 12),
           Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Expanded(
+                flex: 4,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        Flexible(
-                          child: FittedBox(
-                            fit: BoxFit.scaleDown,
-                            alignment: Alignment.centerLeft,
-                            child: Text(
-                              asset.format(asset.price),
-                              style: TextStyle(
-                                fontSize: 38,
-                                fontWeight: FontWeight.w600,
-                                letterSpacing: -1.3,
-                                color: priceColor,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Icon(
-                          asset.changePercent >= 0
-                              ? Icons.north_east
-                              : Icons.south_east,
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        asset.format(asset.price),
+                        style: TextStyle(
+                          fontSize: 40,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: -1.3,
                           color: priceColor,
-                          size: 18,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 2,
+                      children: [
+                        Text(
+                          signed(asset.change, asset.decimals),
+                          style: TextStyle(fontSize: 12, color: priceColor),
+                        ),
+                        Text(
+                          '${signed(asset.changePercent)}%',
+                          style: TextStyle(fontSize: 12, color: priceColor),
                         ),
                       ],
-                    ),
-                    Text(
-                      '${signed(asset.change, asset.decimals)}     ${signed(asset.changePercent)}%',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: priceColor,
-                        fontWeight: FontWeight.w500,
-                      ),
                     ),
                   ],
                 ),
               ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    snapshot.isLive ? '● 日线收盘' : '● 演示收盘',
-                    style: TextStyle(fontSize: 10, color: colors.secondary),
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    '${shortDate(snapshot.asOf)} 15:00 · 北京时间',
-                    style: TextStyle(fontSize: 10, color: colors.secondary),
-                  ),
-                  const SizedBox(height: 7),
-                  MarketBadge(snapshot.sourceLabel),
-                ],
+              const SizedBox(width: 12),
+              Expanded(
+                flex: 6,
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        _quoteStat(
+                          '最高',
+                          asset.format(number(asset.json['high'])),
+                        ),
+                        _quoteStat(
+                          '今开',
+                          asset.format(number(asset.json['open'])),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        _quoteStat(
+                          '最低',
+                          asset.format(number(asset.json['low'])),
+                        ),
+                        _quoteStat('昨收', asset.format(asset.previousClose)),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        _quoteStat('成交额', asset.json['volume'].toString()),
+                        _quoteStat('币种', 'CNY'),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Container(
+                width: 5,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: colors.secondary,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              Text(
+                '${snapshot.isLive ? '日线收盘' : '演示收盘'} · ${shortDate(snapshot.asOf)} 15:00',
+                style: TextStyle(fontSize: 10, color: colors.secondary),
+              ),
+              Text(
+                snapshot.sourceLabel,
+                style: TextStyle(fontSize: 10, color: colors.secondary),
               ),
             ],
           ),
@@ -477,9 +662,41 @@ class _MarketPageState extends State<MarketPage> {
     );
   }
 
+  Widget _quoteStat(String label, String value) {
+    final colors = MarketColors.of(context);
+    return Expanded(
+      child: Padding(
+        padding: const EdgeInsets.only(right: 4),
+        child: Row(
+          children: [
+            Text(
+              label,
+              style: TextStyle(fontSize: 11, color: colors.secondary),
+            ),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontFeatures: [FontFeature.tabularFigures()],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _forecast(MarketSnapshot snapshot, Forecast forecast) {
     final colors = MarketColors.of(context);
     final asset = snapshot.asset;
+    final trendColor = forecast.last.median >= asset.price
+        ? colors.red
+        : colors.green;
     return MarketPanel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -604,22 +821,28 @@ class _MarketPageState extends State<MarketPage> {
             spacing: 8,
             runSpacing: 4,
             children: [
-              Icon(Icons.trending_up, size: 17, color: colors.green),
+              Icon(
+                forecast.last.median >= asset.price
+                    ? Icons.trending_up
+                    : Icons.trending_down,
+                size: 17,
+                color: trendColor,
+              ),
               Text(
                 forecast.trend,
                 style: TextStyle(
-                  color: colors.green,
+                  color: trendColor,
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
                 ),
               ),
               Text(
                 '│',
-                style: TextStyle(color: colors.green.withValues(alpha: .4)),
+                style: TextStyle(color: trendColor.withValues(alpha: .4)),
               ),
               Text(
                 '上涨概率  ${(forecast.upProbability * 100).toStringAsFixed(0)}%',
-                style: TextStyle(color: colors.green, fontSize: 12),
+                style: TextStyle(color: trendColor, fontSize: 12),
               ),
             ],
           ),
@@ -697,7 +920,11 @@ class _MarketPageState extends State<MarketPage> {
         FittedBox(
           child: Text(
             value,
-            style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w600),
+            style: const TextStyle(
+              fontSize: 21,
+              fontWeight: FontWeight.w600,
+              fontFeatures: [FontFeature.tabularFigures()],
+            ),
           ),
         ),
         if (detail != null) ...[
@@ -773,7 +1000,7 @@ class _MarketPageState extends State<MarketPage> {
             forecast.explanation,
             style: TextStyle(fontSize: 12, color: colors.body, height: 1.9),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 8),
           Wrap(
             spacing: 7,
             runSpacing: 7,
@@ -793,7 +1020,7 @@ class _MarketPageState extends State<MarketPage> {
             }).toList(),
           ),
           if (expanded) ...[
-            const SizedBox(height: 16),
+            const SizedBox(height: 8),
             const Divider(),
             ...forecast.drivers.map(
               (driver) => Padding(
@@ -1072,7 +1299,12 @@ class _MarketPageState extends State<MarketPage> {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
             child: Row(
               children: [
-                _navItem('市场', Icons.grid_view_outlined, () => assets()),
+                _navItem(
+                  '行情',
+                  Icons.candlestick_chart_outlined,
+                  () => setSection(0),
+                  selected: section == 0,
+                ),
                 _navItem(
                   '自选',
                   Icons.star_border_rounded,
@@ -1082,7 +1314,7 @@ class _MarketPageState extends State<MarketPage> {
                   '预测',
                   Icons.graphic_eq,
                   () => setSection(1),
-                  selected: true,
+                  selected: section == 1,
                 ),
                 const Spacer(),
                 IconButton(

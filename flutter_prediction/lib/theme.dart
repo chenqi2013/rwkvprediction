@@ -5,20 +5,20 @@ class MarketColors {
   final bool dark;
   factory MarketColors.of(BuildContext context) =>
       MarketColors(Theme.of(context).brightness == Brightness.dark);
-  Color get canvas => Color(dark ? 0xFF101419 : 0xFFF7F8FA);
-  Color get surface => Color(dark ? 0xFF1A2029 : 0xFFFFFFFF);
-  Color get selected => Color(dark ? 0xFF303A49 : 0xFFFFFFFF);
-  Color get ink => Color(dark ? 0xFFE9EDF5 : 0xFF19212C);
-  Color get secondary => Color(dark ? 0xFFA2ACBA : 0xFF858C97);
+  Color get canvas => Color(dark ? 0xFF101113 : 0xFFF3F4F5);
+  Color get surface => Color(dark ? 0xFF191A1E : 0xFFFFFFFF);
+  Color get selected => Color(dark ? 0xFF303136 : 0xFFFFFFFF);
+  Color get ink => Color(dark ? 0xFFF0F0F2 : 0xFF202124);
+  Color get secondary => Color(dark ? 0xFF909299 : 0xFF888B92);
   Color get body => Color(dark ? 0xFFC0C8D4 : 0xFF626975);
-  Color get line => Color(dark ? 0xFF303945 : 0xFFECEEF0);
-  Color get orange => Color(dark ? 0xFFFF9A5F : 0xFFF47735);
-  Color get orangeSoft => Color(dark ? 0xFF36271F : 0xFFFFF3E9);
+  Color get line => Color(dark ? 0xFF2B2C31 : 0xFFECEEF0);
+  Color get orange => const Color(0xFFFF9300);
+  Color get orangeSoft => Color(dark ? 0xFF332719 : 0xFFFFF4E5);
   Color get blue => Color(dark ? 0xFF89A6FF : 0xFF5776D7);
-  Color get green => Color(dark ? 0xFF40C5A7 : 0xFF199E83);
-  Color get red => Color(dark ? 0xFFFF7975 : 0xFFE75A58);
-  Color get action => Color(dark ? 0xFFF79250 : 0xFF19212C);
-  Color get onAction => Color(dark ? 0xFF181C23 : 0xFFFFFFFF);
+  Color get green => Color(dark ? 0xFF00BD83 : 0xFF009B6B);
+  Color get red => Color(dark ? 0xFFFF5058 : 0xFFE83E4D);
+  Color get action => orange;
+  Color get onAction => const Color(0xFF181818);
 }
 
 ThemeData marketTheme(bool dark) {
@@ -32,6 +32,7 @@ ThemeData marketTheme(bool dark) {
     useMaterial3: true,
     colorScheme: scheme,
     scaffoldBackgroundColor: palette.canvas,
+    splashFactory: InkSparkle.splashFactory,
     dividerColor: palette.line,
     fontFamilyFallback: const [
       'PingFang SC',
@@ -53,7 +54,7 @@ ThemeData marketTheme(bool dark) {
         backgroundColor: palette.action,
         foregroundColor: palette.onAction,
         minimumSize: const Size(48, 46),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
       ),
     ),
     inputDecorationTheme: InputDecorationTheme(
@@ -95,8 +96,8 @@ class MarketPanel extends StatelessWidget {
       padding: padding,
       decoration: BoxDecoration(
         color: colors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: colors.line.withValues(alpha: .6), width: .6),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: colors.line, width: .6),
       ),
       child: child,
     );
