@@ -9,6 +9,7 @@ import 'package:llamadart/llamadart.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'device_forecast.dart';
+import 'model_download_client.dart';
 import 'models.dart';
 
 const deviceModelFilename = 'qwen2.5-0.5b-instruct-q4_k_m.gguf';
@@ -159,11 +160,13 @@ class DeviceModel extends ChangeNotifier {
     progress = 0;
     status = '正在下载模型（约 469 MiB）';
     _changed();
-    final client = http.Client();
-    _downloadClient = client;
+    http.Client? client;
     final temporary = File('$modelPath.part');
     IOSink? sink;
     try {
+      client = await createModelDownloadClient();
+      if (disposed) return;
+      _downloadClient = client;
       final response = await client
           .send(http.Request('GET', Uri.parse(deviceModelUrl)))
           .timeout(const Duration(seconds: 30));
@@ -193,11 +196,13 @@ class DeviceModel extends ChangeNotifier {
       sink = null;
       await _install(temporary);
     } catch (exception) {
-      error = exception.toString();
+      error = exception is TimeoutException || exception is http.ClientException
+          ? '无法连接模型下载站点，请检查网络与系统代理，或使用「浏览器下载」后导入 GGUF。'
+          : exception.toString();
       status = '下载未完成，可重试或导入模型文件';
     } finally {
       await sink?.close();
-      client.close();
+      client?.close();
       _downloadClient = null;
       if (await temporary.exists()) await temporary.delete();
       busy = false;

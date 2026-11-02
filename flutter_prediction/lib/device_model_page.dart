@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'device_forecast.dart';
 import 'device_model.dart';
@@ -61,6 +62,15 @@ class _DeviceModelPageState extends State<DeviceModelPage>
       ],
     );
     if (file != null && mounted) await model.importStream(file.openRead());
+  }
+
+  Future<void> downloadInBrowser() async {
+    if (!await launchUrl(
+      Uri.parse(deviceModelUrl),
+      mode: LaunchMode.externalApplication,
+    )) {
+      throw const FormatException('无法打开浏览器，请稍后重试');
+    }
   }
 
   Future<void> testModel() async {
@@ -132,12 +142,19 @@ class _DeviceModelPageState extends State<DeviceModelPage>
                 label: const Text('下载模型'),
               ),
               OutlinedButton.icon(
+                onPressed: model.busy ? null : () => perform(downloadInBrowser),
+                icon: const Icon(Icons.open_in_browser),
+                label: const Text('浏览器下载'),
+              ),
+              OutlinedButton.icon(
                 onPressed: model.busy ? null : () => perform(importModel),
                 icon: const Icon(Icons.file_open_outlined),
                 label: const Text('导入 GGUF'),
               ),
             ],
           ),
+          const SizedBox(height: 8),
+          const Text('浏览器下载完成后，点击「导入 GGUF」选择模型文件。'),
           const SizedBox(height: 28),
           const Text(
             '离线试跑',
