@@ -52,6 +52,11 @@ struct Forecast: Codable, Identifiable {
     let scenarios: [ForecastScenario]
     let usage: ForecastUsage
     let backtest: Backtest
+    let source: String?
+    let model: String?
+    var isLocalModel: Bool { source == "local_model" }
+    var sourceLabel: String { isLocalModel ? "本地模型 · 实验" : "模拟预测" }
+    var hasBacktest: Bool { backtest.status != "not_evaluated" }
     var last: ForecastPoint { points[points.count - 1] }
 }
 struct ForecastDriver: Codable, Identifiable {
@@ -68,20 +73,29 @@ struct ForecastScenario: Codable, Identifiable {
     let target: Double
     let detail: String
 }
-struct ForecastUsage: Codable { let inputTokens: Int; let outputTokens: Int; let latencyMs: Int }
-struct Backtest: Codable { let coverage: Double; let sampleCount: Int; let medianError: Double; let description: String }
+struct ForecastUsage: Codable {
+    let inputTokens: Int; let outputTokens: Int; let latencyMs: Int
+    let model: String?; let source: String?
+}
+struct Backtest: Codable { let coverage: Double; let sampleCount: Int; let medianError: Double; let description: String; let status: String? }
 struct MarketSnapshot: Codable {
     let asset: MarketAsset
     let asOf: String
     let source: String
     let marketVendor: String?
     let model: String
+    let forecastSource: String?
+    var isLocalModel: Bool { forecastSource == "local_model" }
+    var forecastLabel: String { isLocalModel ? "\(model) · 本地实验" : "模拟预测" }
     let history: [HistoryPoint]
     let predictions: [String: Forecast]
     var isLive: Bool { source == "akshare" }
     var marketSourceLabel: String { isLive ? "AKShare · 日线收盘" : "模拟行情 · 离线演示" }
     var sourceDescription: String {
-        isLive ? "行情与历史价格来自 AKShare\(marketVendor == "sina" ? "（新浪备用源，指数成交额暂无）" : "")，采用最近完整交易日收盘数据。预测、解读及回测为模拟，尚未接入 RWKV。" : "当前为离线演示，行情、预测和回测均为模拟数据。"
+        if isLocalModel {
+            return "行情与历史价格来自 AKShare；目标收益率与解读由本地 \(model) 生成，中位路径按目标插值，区间和概率按历史波动估算，未经校准，尚未回测。"
+        }
+        return isLive ? "行情与历史价格来自 AKShare\(marketVendor == "sina" ? "（新浪备用源，指数成交额暂无）" : "")，采用最近完整交易日收盘数据。预测、解读及回测为模拟，尚未接入 RWKV。" : "当前为离线演示，行情、预测和回测均为模拟数据。"
     }
 }
 struct DemoPayload: Codable {
@@ -109,9 +123,13 @@ struct DeliveredForecast: Codable {
     let decimals: Int
     let explanation: String
     let marketSource: String?
+    let forecastSource: String?
+    let model: String?
     let asOf: String?
     func formatted(_ value: Double) -> String { String(format: "%.*f", decimals, value) }
     init(forecast: Forecast, asset: MarketAsset, confidence: Int) {
+        forecastSource = forecast.source
+        model = forecast.model
         horizon = forecast.horizon
         self.confidence = confidence
         lower = forecast.last.lower(confidence)

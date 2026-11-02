@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'api_export_page.dart';
+import 'device_model_page.dart';
 import 'market_controller.dart';
 import 'models.dart';
 import 'theme.dart';
@@ -151,6 +152,26 @@ class _SettingsSheetState extends State<SettingsSheet> {
               style: TextStyle(fontSize: 11, color: colors.secondary),
             ),
             const SizedBox(height: 28),
+            ListTile(
+              key: const ValueKey('device-model-entry'),
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(Icons.memory, color: colors.orange),
+              title: const Text('端侧模型', style: TextStyle(fontSize: 15)),
+              subtitle: const Text(
+                'Qwen 下载、导入与离线试跑',
+                style: TextStyle(fontSize: 11),
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => DeviceModelPage(
+                    model: widget.controller.deviceModel,
+                    onRefresh: widget.controller.load,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
             ListTile(
               key: const ValueKey('api-export-entry'),
               contentPadding: EdgeInsets.zero,
@@ -569,7 +590,7 @@ String predictionReport(
   int confidence,
 ) {
   final asset = snapshot.asset;
-  return '【知势 · RWKV 模拟预测】\n${asset.name} ${asset.symbol}\n'
+  return '【知势 · ${snapshot.forecastLabel}】\n${asset.name} ${asset.symbol}\n'
       '收盘价格：${asset.format(asset.price)} CNY\n行情截至：${snapshot.asOf}\n'
       '未来 ${forecast.horizon} 个交易日\n$confidence% 期末区间：'
       '${asset.format(forecast.last.lower(confidence))} – ${asset.format(forecast.last.upper(confidence))}\n'
@@ -840,7 +861,9 @@ class HistorySheet extends StatelessWidget {
                               ),
                             ),
                             Text(
-                              '演示下发成功',
+                              receipt['status'] == 'saved_locally'
+                                  ? '已保存到本设备'
+                                  : '演示下发成功',
                               style: TextStyle(
                                 fontSize: 10,
                                 color: colors.green,
@@ -903,7 +926,13 @@ class HistorySheet extends StatelessWidget {
                                     ),
                                     const SizedBox(height: 10),
                                     Text(
-                                      forecast['market_source'] == 'akshare'
+                                      forecast['forecast_source'] == 'on_device'
+                                          ? '本设备 ${forecast['model']} 实验输出 · 区间未经校准'
+                                          : forecast['forecast_source'] ==
+                                                'local_model'
+                                          ? '本地 ${forecast['model']} 实验输出 · 区间未经校准'
+                                          : forecast['market_source'] ==
+                                                'akshare'
                                           ? '行情：AKShare · 预测与解读：模拟'
                                           : '行情与预测均为模拟数据',
                                       style: TextStyle(
@@ -949,9 +978,16 @@ class MethodSheet extends StatelessWidget {
             ),
             (
               '为什么区间逐渐变宽',
-              '预测越远，不确定性通常越高。未来每个交易日都有上下界，能展示整段走势范围。当前区间是演示设定，未做真实模型校准。',
+              snapshot.isLocalModel
+                  ? '本地模型生成期末目标，中位走势按目标插值；区间宽度按历史日收益波动率与时间平方根估算，未经校准。'
+                  : '预测越远，不确定性通常越高。当前区间是演示设定，未做真实模型校准。',
             ),
-            ('上涨概率', '期末价格高于当前价格的模拟概率，与区间覆盖水平是不同概念。'),
+            (
+              '上涨概率',
+              snapshot.isLocalModel
+                  ? '按模型目标与历史波动，在对数正态假设下估算，未经校准，不是模型可信度。'
+                  : '期末价格高于当前价格的模拟概率，与区间覆盖水平是不同概念。',
+            ),
             ('数据与模型', '${snapshot.description}未来日期暂只跳过周末，尚未对齐交易所节假日。'),
           ].map(
             (entry) => Padding(
@@ -1046,10 +1082,13 @@ class _CostSheetState extends State<CostSheet> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          row('模型', 'RWKV · Demo'),
+          row('模型', widget.usage['model'] ?? 'RWKV · Demo'),
           row('输入 Token', '${widget.usage['input_tokens']}'),
           row('输出 Token', '${widget.usage['output_tokens']}'),
-          row('模拟耗时', '${widget.usage['latency_ms']} ms'),
+          row(
+            widget.usage['source'] == 'measured' ? '实测耗时' : '模拟耗时',
+            '${widget.usage['latency_ms']} ms',
+          ),
           const Divider(),
           const SizedBox(height: 12),
           ...[
@@ -1080,7 +1119,11 @@ class _CostSheetState extends State<CostSheet> {
           ),
           const SizedBox(height: 16),
           Text(
-            '用量、耗时与默认单价均为示例，需接入实际推理后核算。不含行情、服务器和存储费用。',
+            widget.usage['execution'] == 'on_device'
+                ? 'Token 与耗时为本设备实测，包含模型加载，一次生成全部三个周期。端侧推理没有云端 Token 账单；下方单价仅用于假设预算，不含设备、电力和存储费用。'
+                : widget.usage['source'] == 'measured'
+                ? 'Token 与耗时为本次本地调用实测，一次生成全部三个周期。单价仅用于假设预算；本地运行没有云端 Token 账单，不含电脑、电力和存储费用。'
+                : '用量、耗时与默认单价均为示例，需接入实际推理后核算。不含行情、服务器和存储费用。',
             style: TextStyle(
               fontSize: 11,
               color: colors.secondary,

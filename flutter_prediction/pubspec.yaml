@@ -28,6 +28,8 @@ environment:
 # the latest version available on pub.dev. To see which dependencies have newer
 # versions available, run `flutter pub outdated`.
 dependencies:
+  crypto: ^3.0.7
+  llamadart: 0.17.4
   archive: ^4.5.2
   file_selector: ^1.1.0
   flutter:
@@ -66,6 +68,16 @@ flutter:
   uses-material-design: true
   assets:
     - assets/market-demo.json
+
+hooks:
+  user_defines:
+    llamadart:
+      llamadart_native_runtimes: llama_cpp
+      llamadart_native_backends:
+        platforms:
+          android: [cpu]
+          windows: [cpu]
+          linux: [cpu]
 
   # To add assets to your application, add an assets section, like this:
   # assets:

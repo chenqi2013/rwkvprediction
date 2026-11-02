@@ -59,7 +59,7 @@ struct DeliverySheet: View {
     @State private var error: String?
     private var report: String {
         guard let asset = model.snapshot?.asset, let forecast = model.forecast else { return "" }
-        return "【知势 · RWKV 模拟预测】\n\(asset.name) \(asset.symbol)\n收盘价格：\(asset.formatted(asset.price)) CNY\n行情截至：\(model.snapshot?.asOf ?? "")\n未来 \(forecast.horizon) 个交易日\n\(model.confidence)% 期末区间：\(asset.formatted(forecast.last.lower(model.confidence))) – \(asset.formatted(forecast.last.upper(model.confidence)))\n中位预期：\(asset.formatted(forecast.last.p50))\n\n\(forecast.explanation)\n\n\(model.snapshot?.sourceDescription ?? "")\n不构成投资建议。"
+        return "【知势 · \(model.snapshot?.forecastLabel ?? "模拟预测")】\n\(asset.name) \(asset.symbol)\n收盘价格：\(asset.formatted(asset.price)) CNY\n行情截至：\(model.snapshot?.asOf ?? "")\n未来 \(forecast.horizon) 个交易日\n\(model.confidence)% 期末区间：\(asset.formatted(forecast.last.lower(model.confidence))) – \(asset.formatted(forecast.last.upper(model.confidence)))\n中位预期：\(asset.formatted(forecast.last.p50))\n\n\(forecast.explanation)\n\n\(model.snapshot?.sourceDescription ?? "")\n不构成投资建议。"
     }
     var body: some View {
         NavigationStack {
@@ -140,7 +140,7 @@ struct DeliveryHistory: View {
                                         Text("\(forecast.formatted(forecast.lower)) – \(forecast.formatted(forecast.upper)) \(forecast.currency)").font(.system(size: 17, weight: .semibold, design: .rounded))
                                         Text("中位预期：" + forecast.formatted(forecast.median)).font(.caption)
                                         Text(forecast.explanation).font(.caption).lineSpacing(5)
-                                        Text(forecast.marketSource == "akshare" ? "行情：AKShare · 预测与解读：模拟" : "行情与预测均为模拟数据").font(.caption2).foregroundStyle(Design.orange)
+                                        Text(forecast.forecastSource == "local_model" ? "本地 \(forecast.model ?? "模型") 实验输出 · 区间未经校准" : forecast.marketSource == "akshare" ? "行情：AKShare · 预测与解读：模拟" : "行情与预测均为模拟数据").font(.caption2).foregroundStyle(Design.orange)
                                         if let asOf = forecast.asOf { Text("行情截至：" + asOf).font(.caption2).foregroundStyle(.secondary) }
                                     }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 10)
                                 }.font(.caption).tint(Design.orange)
@@ -168,11 +168,11 @@ struct CostSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    LabeledContent("模型", value: "RWKV · Demo")
+                    LabeledContent("模型", value: usage?.model ?? "RWKV · Demo")
                     LabeledContent("输入 Token", value: "\(usage?.inputTokens ?? 0)")
                     LabeledContent("输出 Token", value: "\(usage?.outputTokens ?? 0)")
-                    LabeledContent("模拟耗时", value: "\(usage?.latencyMs ?? 0) ms")
-                } header: { Text("本次推理用量 · 模拟") } footer: { Text("用量与耗时为演示值，需接入实际 RWKV 推理后实测。") }
+                    LabeledContent(usage?.source == "measured" ? "实测耗时" : "模拟耗时", value: "\(usage?.latencyMs ?? 0) ms")
+                } header: { Text(usage?.source == "measured" ? "本次本地推理用量 · 实测" : "本次推理用量 · 模拟") } footer: { Text(usage?.source == "measured" ? "一次本地调用生成三个周期；Token 与耗时为实测，单价仅为预算假设，无云端 Token 账单。" : "用量与耗时为演示值，需接入实际 RWKV 推理后实测。") }
                 Section {
                     priceField("输入 / 百万 Token（元）", value: $inputPrice)
                     priceField("输出 / 百万 Token（元）", value: $outputPrice)

@@ -82,6 +82,22 @@ class APIContractTests(unittest.TestCase):
         self.assertEqual(error.exception.code, 404)
         error.exception.close()
 
+    def test_device_quote_does_not_run_or_store_backend_inference(self):
+        engine = Mock()
+        engine.generate.side_effect = AssertionError('Device requests must not call server inference')
+        provider = server.MarketProvider(server.payload(), forecast_engine=engine,
+                                         history_loader=lambda symbol, kind: daily_bars())
+        with patch.object(server, 'PROVIDER', provider), patch.object(server, 'save_snapshot') as save:
+            _, quote = self.request('/v1/markets/510300?inference=device')
+            self.assertEqual(quote['source'], 'akshare')
+            self.assertEqual(quote['forecast_source'], 'on_device_pending')
+            self.assertIsNone(quote['model'])
+            self.assertNotIn('predictions', quote)
+            self.assertEqual(len(quote['history']), 61)
+            self.assertEqual(quote['history'][-1]['close'], quote['asset']['price'])
+            engine.generate.assert_not_called()
+            save.assert_not_called()
+
     def test_search_and_non_default_stock_history(self):
         catalog = InstrumentCatalog([], loader=catalog_loader)
         provider = server.MarketProvider(server.payload(), catalog=catalog, history_loader=lambda symbol, kind: daily_bars())

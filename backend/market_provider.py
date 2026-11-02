@@ -1,4 +1,4 @@
-"""Combine real AKShare closing prices with explicitly simulated forecasts."""
+"""Combine real closing prices with a configurable forecast engine."""
 import copy
 import hashlib
 import json
@@ -55,9 +55,11 @@ def live_snapshot(template, bars, fetched_at):
 
 
 class MarketProvider:
-    def __init__(self, fixtures, mode='live', history_loader=None, ttl=300, catalog=None):
+    def __init__(self, fixtures, mode='live', history_loader=None, ttl=300, catalog=None, forecast_engine=None):
         self.fixtures = fixtures
         self.mode = mode
+        self.forecast_engine = forecast_engine
+        self.quote_cache = {}
         self.history_loader = history_loader or akshare_adapter.history
         self.ttl = ttl
         self.cache = {}
@@ -88,7 +90,7 @@ class MarketProvider:
         return dict(items=items[offset:offset + limit], total=len(items), limit=limit, offset=offset,
                     has_more=offset + limit < len(items), warnings=['离线演示仅包含 5 个示例标的。'])
 
-    def snapshot(self, symbol):
+    def snapshot(self, symbol, *, quote_only=False):
         metadata = self.metadata(symbol)
         identity = metadata['id']
         if self.mode == 'demo':
@@ -98,7 +100,8 @@ class MarketProvider:
         with self.lock:
             symbol_lock = self.locks.setdefault(identity, threading.Lock())
         with symbol_lock:
-            cached = self.cache.get(identity)
+            cache = self.quote_cache if quote_only else self.cache
+            cached = cache.get(identity)
             if cached and time.monotonic() - cached[0] < self.ttl:
                 return cached[1]
             original = self.fixtures['snapshots'].get(metadata['symbol'])
@@ -109,19 +112,28 @@ class MarketProvider:
                 template['asset'].update(metadata)
             else:
                 template['asset'].update(id=identity, market=metadata['market'])
+            quote = self.quote_cache.get(identity)
             for attempt in range(2):
                 try:
-                    bars = self.history_loader(metadata['market'] + metadata['symbol'] if self.history_loader == akshare_adapter.history else metadata['symbol'], metadata['kind'])
-                    snapshot = live_snapshot(template, bars, datetime.now(akshare_adapter.SHANGHAI).isoformat(timespec='seconds'))
+                    if quote and time.monotonic() - quote[0] < self.ttl:
+                        snapshot = copy.deepcopy(quote[1])
+                    else:
+                        bars = self.history_loader(metadata['market'] + metadata['symbol'] if self.history_loader == akshare_adapter.history else metadata['symbol'], metadata['kind'])
+                        snapshot = live_snapshot(template, bars, datetime.now(akshare_adapter.SHANGHAI).isoformat(timespec='seconds'))
                     break
                 except Exception as error:
                     if attempt == 1:
                         raise MarketUnavailable(f'{metadata["name"]}的 AKShare 历史行情获取失败或历史不足，请稍后重试；未使用模拟行情替代。') from error
                     time.sleep(0.3)
-            self.cache[identity] = (time.monotonic(), snapshot)
+            if not quote or time.monotonic() - quote[0] >= self.ttl:
+                self.quote_cache[identity] = (time.monotonic(), copy.deepcopy(snapshot))
+            if not quote_only and self.forecast_engine is not None:
+                snapshot = self.forecast_engine.generate(snapshot)
+            if not quote_only:
+                cache[identity] = (time.monotonic(), snapshot)
             return snapshot
 
     def assets(self):
         with ThreadPoolExecutor(max_workers=1) as executor:
-            snapshots = list(executor.map(self.snapshot, self.fixtures['snapshots']))
+            snapshots = list(executor.map(lambda symbol: self.snapshot(symbol, quote_only=True), self.fixtures['snapshots']))
         return [snapshot['asset'] for snapshot in snapshots]

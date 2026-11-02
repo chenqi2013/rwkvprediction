@@ -115,6 +115,15 @@ class Forecast {
       (json['scenarios'] as List).map((row) => Json.from(row)).toList();
   Json get backtest => json['backtest'];
   Json get usage => json['usage'];
+  bool get isOnDevice => json['source'] == 'on_device';
+  bool get isLocalModel => isOnDevice || json['source'] == 'local_model';
+  String get modelLabel => json['model'] ?? 'RWKV';
+  String get sourceLabel => isOnDevice
+      ? '端侧推理 · 实验'
+      : isLocalModel
+      ? '本地模型 · 实验'
+      : '模拟预测';
+  bool get hasBacktest => json['backtest']['status'] != 'not_evaluated';
 }
 
 class MarketSnapshot {
@@ -122,6 +131,8 @@ class MarketSnapshot {
     : asset = MarketAsset(json['asset']),
       asOf = json['as_of'],
       source = json['source'],
+      forecastSource = json['forecast_source'] ?? 'mock',
+      model = json['model'] ?? 'RWKV · Demo',
       vendor = json['market_vendor'],
       history = (json['history'] as List)
           .map((row) => HistoryPoint(Json.from(row)))
@@ -138,12 +149,23 @@ class MarketSnapshot {
   final MarketAsset asset;
   final String asOf;
   final String source;
+  final String forecastSource;
+  final String model;
   final String? vendor;
   final List<HistoryPoint> history;
   final Map<int, Forecast> predictions;
   bool get isLive => source == 'akshare';
+  bool get isOnDevice => forecastSource == 'on_device';
+  bool get isLocalModel => isOnDevice || forecastSource == 'local_model';
+  String get forecastLabel => isOnDevice
+      ? '$model · 端侧实验'
+      : isLocalModel
+      ? '$model · 本地实验'
+      : '模拟预测';
   String get sourceLabel => isLive ? 'AKShare · 日线收盘' : '模拟行情 · 离线演示';
-  String get description => isLive
+  String get description => isLocalModel
+      ? '${isLive ? '行情来自 AKShare，采用最近完整交易日收盘。' : '行情为离线演示数据。'}目标收益率与解读由${isOnDevice ? '本设备' : '本地'} $model 生成；中位路径按目标插值，区间与上涨概率按历史波动估算，未经校准，尚无模型回测。'
+      : isLive
       ? '行情来自 AKShare${vendor == 'sina' ? '（新浪备用源）' : ''}，展示最近完整交易日收盘。${vendor == 'sina' && asset.kind == '指数' ? '备用源暂无指数成交额。' : ''}预测、解读与回测均为模拟，尚未接入 RWKV。'
       : '离线演示：行情、预测、解读与回测均为模拟数据。';
 }

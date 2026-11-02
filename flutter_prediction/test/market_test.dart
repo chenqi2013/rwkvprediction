@@ -438,6 +438,74 @@ void main() {
     },
   );
 
+  testWidgets(
+    'local model provenance, measured usage and missing backtest display correctly',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final snapshotJson =
+          Json.from(jsonDecode(jsonEncode(fixture['snapshots']['510300'])))
+            ..['source'] = 'akshare'
+            ..['forecast_source'] = 'local_model'
+            ..['model'] = 'qwen2.5:0.5b';
+      for (final value in snapshotJson['predictions'].values) {
+        value['source'] = 'local_model';
+        value['model'] = 'qwen2.5:0.5b';
+        value['usage'] = {
+          'input_tokens': 861,
+          'output_tokens': 113,
+          'latency_ms': 1227,
+          'source': 'measured',
+          'model': 'qwen2.5:0.5b',
+        };
+        value['backtest'] = {
+          'status': 'not_evaluated',
+          'coverage': 0,
+          'median_error': 0,
+          'sample_count': 0,
+          'description': '尚未开展该模型的历史回测。',
+        };
+      }
+      final service = HttpMarketService(
+        'http://localhost:8787',
+        client: MockClient(
+          (request) async =>
+              http.Response.bytes(utf8.encode(jsonEncode(snapshotJson)), 200),
+        ),
+      );
+      final controller = MarketController(
+        preferences,
+        service: service,
+        requestLog: NoDiskRequestLog(),
+      );
+      await tester.pumpWidget(PredictionApp(controller: controller));
+      await tester.pumpAndSettle();
+      expect(find.text('qwen2.5:0.5b'), findsOneWidget);
+      expect(find.text('本地模型 · 实验'), findsOneWidget);
+      expect(
+        predictionReport(controller.snapshot!, controller.forecast!, 80),
+        contains('qwen2.5:0.5b · 本地实验'),
+      );
+      await tester.ensureVisible(find.text('预测表现'));
+      await tester.pumpAndSettle();
+      expect(find.text('尚未回测'), findsOneWidget);
+      expect(find.text('—'), findsNWidgets(2));
+      expect(find.text('0.0%'), findsNothing);
+      await tester.ensureVisible(find.text('推理用量与成本估算'));
+      await tester.tap(find.text('推理用量与成本估算'));
+      await tester.pumpAndSettle();
+      expect(find.text('实测耗时'), findsOneWidget);
+      expect(find.text('1227 ms'), findsOneWidget);
+      expect(find.text('861'), findsOneWidget);
+      expect(find.text('113'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+    },
+  );
+
   for (final size in [const Size(390, 844), const Size(1440, 1000)]) {
     testWidgets('forecast, theme, chart and delivery work at ${size.width}px', (
       tester,

@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api_request_log.dart';
+import 'device_model.dart';
+import 'device_forecast.dart';
 import 'market_service.dart';
 import 'models.dart';
 
@@ -12,7 +14,9 @@ class MarketController extends ChangeNotifier {
     this.preferences, {
     MarketService? service,
     ApiRequestLog? requestLog,
+    DeviceModel? deviceModel,
   }) : requestLog = requestLog ?? ApiRequestLog(),
+       deviceModel = deviceModel ?? DeviceModel(),
        dark = preferences.getBool('dark') ?? true,
        baseUrl = preferences.getString('baseUrl') ?? defaultBaseUrl,
        demo = const bool.fromEnvironment('DEMO_MODE'),
@@ -52,6 +56,7 @@ class MarketController extends ChangeNotifier {
 
   final SharedPreferences preferences;
   final ApiRequestLog requestLog;
+  final DeviceModel deviceModel;
   late MarketService _service;
   bool dark;
   String baseUrl;
@@ -90,7 +95,11 @@ class MarketController extends ChangeNotifier {
   Forecast? get forecast => snapshot?.predictions[horizon];
   MarketService _makeService() => demo
       ? DemoMarketService()
-      : HttpMarketService(baseUrl, requestLog: requestLog);
+      : HttpMarketService(
+          baseUrl,
+          requestLog: requestLog,
+          deviceModel: deviceModel,
+        );
   Future<void> load({String? selectedSymbol}) async {
     final generation = ++_generation;
     if (selectedSymbol != null) symbol = selectedSymbol;
@@ -101,8 +110,11 @@ class MarketController extends ChangeNotifier {
     }
     loading = true;
     error = null;
+    _service.cancelPending();
     notifyListeners();
     try {
+      await deviceModel.cancelAndWait();
+      if (_disposed || generation != _generation) return;
       final updatedSnapshot = await _service.snapshot(requested);
       if (_disposed || generation != _generation) return;
       if (updatedSnapshot.asset.id != requested &&
@@ -200,12 +212,9 @@ class MarketController extends ChangeNotifier {
     if (current == null || prediction == null) {
       throw const MarketException('请先加载行情');
     }
-    final receipt = await _service.deliver(
-      current,
-      prediction,
-      confidence,
-      channel,
-    );
+    final receipt = prediction.isOnDevice
+        ? deviceReceipt(current, prediction, confidence, channel)
+        : await _service.deliver(current, prediction, confidence, channel);
     deliveries.insert(0, receipt);
     await preferences.setString('deliveries', jsonEncode(deliveries));
     if (!_disposed) notifyListeners();
@@ -217,6 +226,7 @@ class MarketController extends ChangeNotifier {
     _disposed = true;
     _service.close();
     requestLog.dispose();
+    deviceModel.dispose();
     super.dispose();
   }
 }

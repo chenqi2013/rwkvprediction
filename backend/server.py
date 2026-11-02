@@ -1,7 +1,7 @@
-"""AKShare market API with simulated forecasts and local delivery receipts.
+"""AKShare market API with configurable local inference and delivery receipts.
 
 Run: python3 backend/server.py --port 8787
-Forecasts are synthetic. No external notification is sent by delivery endpoints.
+No external notification is sent by delivery endpoints.
 """
 import argparse
 import json
@@ -14,6 +14,7 @@ from pathlib import Path
 from urllib.parse import urlparse, parse_qs, unquote
 from market_provider import MarketProvider, MarketUnavailable
 from instrument_catalog import InstrumentCatalog, CatalogUnavailable, instrument
+from forecast_engine import ForecastUnavailable, configured_engine
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / 'rwkvprediction/rwkvprediction/Resources/market-demo.json'
@@ -82,6 +83,9 @@ def make_delivery(body):
                           upper=end['p975' if confidence == 95 else 'p90'], currency='CNY',
                           decimals=3 if snapshot['asset']['kind'] == 'ETF' else 2, explanation=forecast['explanation'],
                           market_source=snapshot['source'], as_of=snapshot['as_of'])
+    saved_forecast.update(forecast_source=snapshot.get('forecast_source', 'mock'),
+                          model=snapshot['model'], forecast_method=snapshot.get('forecast_method', 'mock'),
+                          usage=forecast['usage'])
     receipt = dict(id=str(uuid.uuid4()), prediction_id=prediction_id, symbol=symbol,
                    instrument_id=saved_asset.get('id'),
                    asset_name=snapshot['asset']['name'], channel=channel,
@@ -107,6 +111,9 @@ class Handler(BaseHTTPRequestHandler):
         except (MarketUnavailable, CatalogUnavailable) as error:
             self.log_error('%s: %s', error, error.__cause__)
             self.send_json(502, dict(error=str(error)))
+        except ForecastUnavailable as error:
+            self.log_error('%s: %s', error, error.__cause__)
+            self.send_json(503, dict(error=str(error)))
         except KeyError:
             self.send_json(404, dict(error='未找到该标的，请从搜索结果中选择。'))
         except ValueError as error:
@@ -115,7 +122,11 @@ class Handler(BaseHTTPRequestHandler):
     def get_response(self):
         path = urlparse(self.path).path.rstrip('/')
         if path == '/health':
-            return self.send_json(200, dict(status='ok', mode=PROVIDER.mode, market_source='akshare' if PROVIDER.mode == 'live' else 'mock', forecast_source='mock'))
+            engine = PROVIDER.forecast_engine if PROVIDER.mode == 'live' else None
+            return self.send_json(200, dict(status='ok', mode=PROVIDER.mode,
+                                           market_source='akshare' if PROVIDER.mode == 'live' else 'mock',
+                                           forecast_source='local_model' if engine else 'mock',
+                                           model=engine.label if engine else 'RWKV · Mock'))
         if path == '/v1/assets':
             return self.send_json(200, PROVIDER.assets())
         if path == '/v1/instruments':
@@ -129,6 +140,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(200, PROVIDER.search(query, kind, limit, offset))
         if path.startswith('/v1/markets/'):
             symbol = unquote(path.rsplit('/', 1)[-1])
+            if parse_qs(urlparse(self.path).query).get('inference') == ['device']:
+                snapshot = dict(PROVIDER.snapshot(symbol, quote_only=True))
+                snapshot.pop('predictions', None)
+                snapshot.update(forecast_source='on_device_pending', model=None)
+                return self.send_json(200, snapshot)
             return self.send_json(200, save_snapshot(PROVIDER.snapshot(symbol)))
         if path == '/v1/deliveries':
             with connect() as connection:
@@ -154,11 +170,13 @@ if __name__ == '__main__':
     parser.add_argument('--port', type=int, default=8787)
     parser.add_argument('--host', default='0.0.0.0')
     parser.add_argument('--mode', choices=['live', 'demo'], default='live')
+    parser.add_argument('--forecast-config', type=Path, default=Path(__file__).with_name('forecast_config.json'))
     args = parser.parse_args()
     fixtures = payload()
     catalog = InstrumentCatalog([instrument(asset['symbol'], asset['name'], asset['kind']) for asset in fixtures['assets']],
                                 cache_dir=Path(__file__).with_name('runtime') / 'catalog')
-    PROVIDER = MarketProvider(fixtures, mode=args.mode, catalog=catalog)
+    engine = configured_engine(args.forecast_config) if args.mode == 'live' else None
+    PROVIDER = MarketProvider(fixtures, mode=args.mode, catalog=catalog, forecast_engine=engine)
     server = ThreadingHTTPServer((args.host, args.port), Handler)
-    print(f'Market API: http://{args.host}:{args.port} · {args.mode} market data · mock forecasts', flush=True)
+    print(f'Market API: http://{args.host}:{args.port} · {args.mode} market data · {engine.label if engine else "mock"} forecasts', flush=True)
     server.serve_forever()

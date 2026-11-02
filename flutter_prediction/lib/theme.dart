@@ -124,12 +124,16 @@ class MarketBadge extends StatelessWidget {
             Icon(icon, size: 11, color: colors.orange),
             const SizedBox(width: 4),
           ],
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 10,
-              color: colors.orange,
-              fontWeight: FontWeight.w600,
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 10,
+                color: colors.orange,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ],

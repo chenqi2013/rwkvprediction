@@ -52,7 +52,7 @@ class _ForecastChartState extends State<ForecastChart> {
                     .round()
                     .clamp(0, widget.forecast.points.length - 1);
             final point = widget.forecast.points[index];
-            date = '${point.date} · 模拟预测';
+            date = '${point.date} · ${widget.forecast.sourceLabel}';
             value =
                 '${widget.snapshot.asset.format(point.lower(widget.confidence))} – ${widget.snapshot.asset.format(point.upper(widget.confidence))}';
           }
@@ -61,7 +61,7 @@ class _ForecastChartState extends State<ForecastChart> {
             setState(() => selected = position.dx.clamp(0, width));
         return Semantics(
           label:
-              '${widget.snapshot.asset.name}历史走势${widget.historicalOnly ? '' : '与未来${widget.forecast.horizon}日模拟预测，${widget.confidence}%期末区间${widget.snapshot.asset.format(widget.forecast.last.lower(widget.confidence))}至${widget.snapshot.asset.format(widget.forecast.last.upper(widget.confidence))}'}',
+              '${widget.snapshot.asset.name}历史走势${widget.historicalOnly ? '' : '与未来${widget.forecast.horizon}日${widget.forecast.sourceLabel}，${widget.confidence}%期末区间${widget.snapshot.asset.format(widget.forecast.last.lower(widget.confidence))}至${widget.snapshot.asset.format(widget.forecast.last.upper(widget.confidence))}'}',
           child: MouseRegion(
             cursor: SystemMouseCursors.precise,
             onHover: (event) => select(event.localPosition),

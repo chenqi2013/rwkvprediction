@@ -232,7 +232,7 @@ struct ContentView: View {
                 Image(systemName: "arrow.triangle.2.circlepath").font(.system(size: 9))
                 Text("数据截至 " + timestamp(snapshot.asOf, format: "yyyy/MM/dd HH:mm"))
                 Spacer()
-                Text("模拟预测").foregroundStyle(Design.orange)
+                Text(forecast.sourceLabel).foregroundStyle(Design.orange)
             }.font(.system(size: 10)).foregroundStyle(Design.secondary)
             HStack {
                 HStack(spacing: 3) {
@@ -344,11 +344,11 @@ struct ContentView: View {
 
     private func evaluationCard(_ forecast: Forecast) -> some View {
         VStack(alignment: .leading, spacing: 15) {
-            HStack { Text("预测表现").font(.system(size: 16, weight: .semibold)); Spacer(); Text("模拟回测").font(.system(size: 10)).foregroundStyle(Design.secondary) }
+            HStack { Text("预测表现").font(.system(size: 16, weight: .semibold)); Spacer(); Text(forecast.hasBacktest ? "模拟回测" : "尚未回测").font(.system(size: 10)).foregroundStyle(Design.secondary) }
             HStack {
-                evaluationMetric("80% 区间覆盖率", value: String(format: "%.1f%%", forecast.backtest.coverage*100))
+                evaluationMetric("80% 区间覆盖率", value: forecast.hasBacktest ? String(format: "%.1f%%", forecast.backtest.coverage*100) : "—")
                 Spacer()
-                evaluationMetric("中位绝对误差", value: String(format: "%.1f%%", forecast.backtest.medianError*100))
+                evaluationMetric("中位绝对误差", value: forecast.hasBacktest ? String(format: "%.1f%%", forecast.backtest.medianError*100) : "—")
                 Spacer()
                 evaluationMetric("回测样本", value: "\(forecast.backtest.sampleCount)")
             }
@@ -377,7 +377,7 @@ struct ContentView: View {
     }
     private var sourceFooter: some View {
         VStack(spacing: 8) {
-            HStack(spacing: 5) { Image(systemName: "point.3.connected.trianglepath.dotted"); Text((model.snapshot?.marketSourceLabel ?? "行情加载中") + " · 预测模拟") }.font(.system(size: 10, weight: .medium))
+            HStack(spacing: 5) { Image(systemName: "point.3.connected.trianglepath.dotted"); Text((model.snapshot?.marketSourceLabel ?? "行情加载中") + " · " + (model.snapshot?.forecastLabel ?? "模拟预测")) }.font(.system(size: 10, weight: .medium))
             Text((model.snapshot?.sourceDescription ?? "") + "\n概率区间不代表收益保证，不构成投资建议。")
                 .font(.system(size: 9)).multilineTextAlignment(.center).lineSpacing(4)
         }.foregroundStyle(Design.secondary).frame(maxWidth: .infinity).padding(.vertical, 12)
@@ -405,7 +405,7 @@ struct ContentView: View {
         }
     }
     private var engineBadge: some View {
-        HStack(spacing: 3) { Image(systemName: "waveform.path"); Text("RWKV") }
+        HStack(spacing: 3) { Image(systemName: "waveform.path"); Text(model.forecast?.model ?? "RWKV") }
             .font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundStyle(Design.orange)
             .padding(.horizontal, 5).padding(.vertical, 4).background(Design.orangeSoft, in: RoundedRectangle(cornerRadius: 4))
     }
@@ -439,9 +439,9 @@ struct ContentView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     Label("让预测呈现不确定性", systemImage: "waveform.path").font(.title3.bold())
-                    methodItem("区间如何阅读", "浅色区域表示所选 80% 或 95% 的预测区间；深色区域表示中间 50% 区间；虚线是中位走势。概率是模型对可能路径的估计。")
+                    methodItem("区间如何阅读", "浅色区域表示所选 80% 或 95% 的预测区间；深色区域表示中间 50% 区间；虚线是中位走势。本地模型的区间按历史波动公式估算，尚未校准。")
                     methodItem("为什么区间逐渐变宽", "预测越远，不确定性通常越高。区间由每个未来交易日的分位数构成，因此能呈现整段走势范围，而不只是最高价和最低价。")
-                    methodItem("上涨概率", "表示期末价格高于当前价格的模拟概率，与区间覆盖水平是不同概念。")
+                    methodItem("上涨概率", "期末价格高于当前价格的估计。本地模型模式按目标收益与历史波动公式计算，未经校准；演示模式使用模拟值。")
                     methodItem("数据与模型", (model.snapshot?.sourceDescription ?? "") + "行情采用不复权日线，展示最近完整交易日；未来日期暂只跳过周末，未对齐交易所节假日。")
                     Link("查看 AKShare 数据文档 ↗", destination: URL(string: "https://akshare.akfamily.xyz/index.html")!).font(.subheadline).tint(Design.orange)
                 }.padding(24)

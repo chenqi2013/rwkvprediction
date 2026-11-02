@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 
 import 'api_request_log.dart';
+import 'device_forecast.dart';
+import 'device_model.dart';
 import 'models.dart';
 
 class MarketException implements Exception {
@@ -24,15 +26,22 @@ abstract class MarketService {
     int confidence,
     String channel,
   );
+  void cancelPending() {}
   void close() {}
 }
 
 class HttpMarketService extends MarketService {
-  HttpMarketService(this.baseUrl, {http.Client? client, this.requestLog})
-    : client = client ?? http.Client();
+  HttpMarketService(
+    this.baseUrl, {
+    http.Client? client,
+    this.requestLog,
+    this.deviceModel,
+  }) : client = client ?? http.Client();
   final String baseUrl;
   final http.Client client;
   ApiRequestLog? requestLog;
+  final DeviceModel? deviceModel;
+  int _revision = 0;
 
   Future<dynamic> request(String path, {Json? body}) async {
     final uri = Uri.parse('${baseUrl.replaceFirst(RegExp(r'/+$'), '')}/$path');
@@ -51,7 +60,9 @@ class HttpMarketService extends MarketService {
                       headers: {'Content-Type': 'application/json'},
                       body: bodyText,
                     ))
-              .timeout(const Duration(seconds: 30));
+              .timeout(
+                Duration(seconds: path.startsWith('v1/markets/') ? 60 : 30),
+              );
       decoded = jsonDecode(utf8.decode(response.bodyBytes));
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw MarketException(
@@ -101,7 +112,7 @@ class HttpMarketService extends MarketService {
               },
         'error': failure,
         'data_note':
-            '实际 HTTP 请求与响应。行情来源以响应 source 为准；预测、解读、回测与用量仍为模拟。离线演示不产生 HTTP 记录。',
+            '实际 HTTP 请求与响应。行情来源以响应 source 为准；inference=device 仅请求行情，模型推理在本设备完成。离线演示不产生 HTTP 记录。',
       });
     }
   }
@@ -130,29 +141,59 @@ class HttpMarketService extends MarketService {
   }
 
   @override
-  Future<MarketSnapshot> snapshot(String symbol) async => MarketSnapshot(
-    Json.from(await request('v1/markets/${Uri.encodeComponent(symbol)}')),
-  );
+  Future<MarketSnapshot> snapshot(String symbol) async {
+    final runtime = deviceModel;
+    if (runtime == null) {
+      return MarketSnapshot(
+        Json.from(await request('v1/markets/${Uri.encodeComponent(symbol)}')),
+      );
+    }
+    final revision = ++_revision;
+    await runtime.initialize();
+    if (!runtime.ready) {
+      throw const MarketException('请先在设置 → 端侧模型中下载或导入 Qwen 模型');
+    }
+    final quote = Json.from(
+      await request(
+        'v1/markets/${Uri.encodeComponent(symbol)}?inference=device',
+      ),
+    );
+    if (revision != _revision) throw const MarketException('行情请求已取消');
+    quote.remove('predictions');
+    return MarketSnapshot(await runtime.predict(quote));
+  }
+
   @override
   Future<Json> deliver(
     MarketSnapshot snapshot,
     Forecast forecast,
     int confidence,
     String channel,
-  ) async => Json.from(
-    await request(
-      'v1/deliveries',
-      body: {
-        'symbol': snapshot.asset.symbol,
-        'instrument_id': snapshot.asset.id,
-        'prediction_id': forecast.id,
-        'confidence': confidence,
-        'channel': channel,
-      },
-    ),
-  );
+  ) async => forecast.isOnDevice
+      ? deviceReceipt(snapshot, forecast, confidence, channel)
+      : Json.from(
+          await request(
+            'v1/deliveries',
+            body: {
+              'symbol': snapshot.asset.symbol,
+              'instrument_id': snapshot.asset.id,
+              'prediction_id': forecast.id,
+              'confidence': confidence,
+              'channel': channel,
+            },
+          ),
+        );
   @override
-  void close() => client.close();
+  void cancelPending() {
+    ++_revision;
+    deviceModel?.cancel();
+  }
+
+  @override
+  void close() {
+    cancelPending();
+    client.close();
+  }
 }
 
 class DemoMarketService extends MarketService {

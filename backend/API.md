@@ -2,16 +2,17 @@
 
 基础地址：模拟器使用 `http://127.0.0.1:8787`，iPhone 真机使用电脑局域网地址，例如 `http://192.168.1.23:8787`。JSON 使用 `snake_case`，价格为 CNY；日期为 `YYYY-MM-DD`，更新时间为带时区的 ISO 8601。
 
-默认模式为真实 AKShare 行情 + 模拟预测。先安装 `requirements.txt`，再运行 `python3 backend/server.py`。`--mode demo` 才使用纯模拟行情。运行 `python3 backend/generate_fixtures.py` 可重新生成离线演示样例，不会覆盖真实行情。
+默认提供真实 AKShare 行情。Flutter 使用 `?inference=device` 只获取行情，再在本设备内运行 Qwen2.5 0.5B；后端无需安装或启动模型。`forecast_config.json` 默认 `provider=mock`，旧原生接口仍返回模拟预测。模型与来源边界见 [LOCAL_MODEL.md](LOCAL_MODEL.md)。先安装 `requirements.txt`，再运行 `python3 backend/server.py`。`--mode demo` 使用纯模拟行情。
 
 ## 端点
 
 | 方法 | 路径 | 返回 |
 | --- | --- | --- |
-| GET | `/health` | `{"status":"ok","mode":"live","market_source":"akshare","forecast_source":"mock"}` |
+| GET | `/health` | 进程状态及旧服务端模式；不代表设备模型状态 |
 | GET | `/v1/assets` | 兼容旧客户端的 5 个精选标的报价 |
 | GET | `/v1/instruments?q=名称或代码&kind=股票&limit=50&offset=0` | 搜索元数据，不批量获取报价 |
 | GET | `/v1/markets/{instrument_id}` | 所选标的报价、历史价格、三个周期的完整预测 |
+| GET | `/v1/markets/{instrument_id}?inference=device` | 仅报价与历史价格，无 `predictions`，不运行服务器模型 |
 | POST | `/v1/deliveries` | 创建演示下发，201 + 持久化回执 |
 | GET | `/v1/deliveries` | 当前服务器保存的下发回执，最新在前 |
 
@@ -84,11 +85,19 @@
 }
 ```
 
-`source` 仅表示行情来源，`akshare` 表示真实行情，`mock` 表示显式演示模式。无论行情模式如何，当前预测均为模拟。`as_of` 是收盘数据日期，`fetched_at` 是后端获取时间，不表示实时行情时间。演示响应不包含后三个新增元数据字段。
+`source` 仅表示行情来源，`akshare` 表示真实行情，`mock` 表示显式演示模式。`forecast_source=local_model` 表示实际本地推理；字段缺失或 `mock` 表示原模拟预测。`as_of` 是收盘数据日期，`fetched_at` 是后端获取时间，不表示实时行情时间。演示响应不包含后三个新增元数据字段。
 
 一次获取所有预测周期，切换周期无需再次网络请求。历史最后一个点的收盘价与报价完全一致，模拟预测以该价格为锚点，从下一演示交易日开始；未来日期仅跳过周末，仍需接入交易所节假日日历。真实行情日期不使用模拟交易日生成。
 
 ## Forecast 对象
+
+端侧路径的 HTTP 响应标记 `forecast_source=on_device_pending`、`model=null`。Flutter 在设备生成结果后，内存快照标记 `forecast_source=on_device`，Forecast 标记 `source=on_device`，`usage.execution=on_device`；这些模型输出不来自 API，也不会上传给服务器。端侧保存回执为 `status=saved_locally`，不调用 `POST /v1/deliveries`，不在服务器历史中出现。
+
+保留的可选旧服务端模型模式额外返回快照 `forecast_source=local_model`、`model`、`forecast_method`、`forecast_description`、`generated_at`；每个 Forecast 返回 `source=local_model`、`model`、`target_return_pct`、`interval_source`、`probability_source`。两种模型路径都仅生成各周期目标收益率和解读，中位路径由对数价格插值，区间和上涨概率由历史波动估算，未经校准。
+
+本地模型的 `usage.source=measured`，`usage.scope` 指明一次调用生成全部三个周期，各周期用量相同，不应累加。`backtest.status=not_evaluated`、兼容数值字段为 0；客户端以 `—` 显示覆盖率和误差。模型失败返回 503，报价依然保留，不回退模拟预测。`/health` 报告配置，不检查模型在线状态。下发回执额外保存 `forecast_source`、`model`、`forecast_method` 和 `usage`，重启后可追溯原结果。
+
+下面保留旧模拟模式对象示例，适用于 `provider=mock` 和离线演示：
 
 ```text
 {
@@ -132,7 +141,7 @@
 | `backtest.coverage` | 固定 80% 区间的历史覆盖率展示值，0–1 |
 | `backtest.median_error` | 中位价格预测的绝对百分比误差展示值，0–1 |
 
-要求 `p025 ≤ p10 ≤ p25 ≤ p50 ≤ p75 ≤ p90 ≤ p975`，所有价格为有限正数，日期严格递增。页面的期末指标取 `points.last`，涨跌幅为 `(预测值 / 当前价 - 1) × 100%`。上涨概率与预测区间覆盖水平是不同指标。当前分位数和指标都是模拟设定，未做真实模型校准。
+要求 `p025 ≤ p10 ≤ p25 ≤ p50 ≤ p75 ≤ p90 ≤ p975`，所有价格为有限正数，日期严格递增。页面的期末指标取 `points.last`，涨跌幅为 `(预测值 / 当前价 - 1) × 100%`。上涨概率与预测区间覆盖水平是不同指标。模拟模式的分位数和指标是演示设定；本地模型模式的分位数为历史波动估算，尚未校准。
 
 ## 下发与回看
 
@@ -180,7 +189,7 @@
 
 ## 成本口径
 
-客户端估算公式：`输入 Token / 1,000,000 × 输入单价 + 输出 Token / 1,000,000 × 输出单价`，再乘以每日调用量和 30 日。输入／输出 Token、耗时和默认价格都是示例值。真实 RWKV 服务可以保留这些字段，也可以扩展 GPU 时长、缓存命中、并发数、模型版本与批量调用成本。
+客户端估算公式：`输入 Token / 1,000,000 × 输入单价 + 输出 Token / 1,000,000 × 输出单价`，再乘以每日调用量和 30 日。本地模式的输入／输出 Token 与耗时为实测，默认价格仍是预算示例；离线或模拟模式用量为示例。真实 RWKV 服务可以保留这些字段，也可以扩展 GPU 时长、缓存命中、并发数、模型版本与批量调用成本。
 
 ## AKShare 接入位置
 
@@ -189,4 +198,4 @@
 - [ETF 行情与历史接口文档](https://akshare.akfamily.xyz/data/fund/fund_public.html)
 - [指数行情与历史接口文档](https://akshare.akfamily.xyz/data/index/index.html)
 
-后续将适配后的历史数据交给 RWKV 推理服务，替换当前按真实收盘价缩放的模拟分位数与模拟解读即可。
+当前 `forecast_engine.py` 已接入本地 Qwen 的 OpenAI 兼容推理接口；后续切换 RWKV 可替换模型配置或实现同一个 `generate(snapshot)` 接口，详见 LOCAL_MODEL.md。

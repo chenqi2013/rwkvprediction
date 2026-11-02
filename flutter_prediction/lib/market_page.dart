@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'forecast_chart.dart';
+import 'device_model_page.dart';
 import 'market_controller.dart';
 import 'models.dart';
 import 'sheets.dart';
@@ -13,20 +14,30 @@ class MarketPage extends StatefulWidget {
   State<MarketPage> createState() => _MarketPageState();
 }
 
-class _MarketPageState extends State<MarketPage> {
+class _MarketPageState extends State<MarketPage> with WidgetsBindingObserver {
   MarketController get model => widget.controller;
   int section = 1;
   final scrollController = ScrollController();
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) model.load();
     });
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      model.deviceModel.cancel();
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     scrollController.dispose();
     super.dispose();
   }
@@ -333,6 +344,17 @@ class _MarketPageState extends State<MarketPage> {
               label: const Text('重新加载'),
             ),
             TextButton(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => DeviceModelPage(
+                    model: model.deviceModel,
+                    onRefresh: model.load,
+                  ),
+                ),
+              ),
+              child: const Text('下载或试跑端侧模型'),
+            ),
+            TextButton(
               onPressed: () => show(SettingsSheet(controller: model)),
               child: const Text('设置行情服务地址'),
             ),
@@ -468,7 +490,7 @@ class _MarketPageState extends State<MarketPage> {
           child: Column(
             children: [
               Text(
-                '${snapshot.sourceLabel}  ·  预测模拟',
+                '${snapshot.sourceLabel}  ·  ${snapshot.forecastLabel}',
                 style: TextStyle(
                   color: colors.secondary,
                   fontSize: 10,
@@ -708,7 +730,9 @@ class _MarketPageState extends State<MarketPage> {
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
               ),
               const SizedBox(width: 8),
-              const MarketBadge('RWKV', icon: Icons.graphic_eq),
+              Flexible(
+                child: MarketBadge(forecast.modelLabel, icon: Icons.graphic_eq),
+              ),
               const Spacer(),
               IconButton(
                 tooltip: '预测方法与区间说明',
@@ -734,7 +758,7 @@ class _MarketPageState extends State<MarketPage> {
                 ),
               ),
               Text(
-                '模拟预测',
+                forecast.sourceLabel,
                 style: TextStyle(color: colors.orange, fontSize: 10),
               ),
             ],
@@ -841,7 +865,7 @@ class _MarketPageState extends State<MarketPage> {
                 style: TextStyle(color: trendColor.withValues(alpha: .4)),
               ),
               Text(
-                '上涨概率  ${(forecast.upProbability * 100).toStringAsFixed(0)}%',
+                '${forecast.isLocalModel ? '上涨概率估计' : '上涨概率'}  ${(forecast.upProbability * 100).toStringAsFixed(0)}%',
                 style: TextStyle(color: trendColor, fontSize: 12),
               ),
             ],
@@ -1173,7 +1197,7 @@ class _MarketPageState extends State<MarketPage> {
           PanelTitle(
             '预测表现',
             trailing: Text(
-              '模拟回测',
+              forecast.hasBacktest ? '模拟回测' : '尚未回测',
               style: TextStyle(color: colors.secondary, fontSize: 10),
             ),
           ),
@@ -1183,17 +1207,26 @@ class _MarketPageState extends State<MarketPage> {
               Expanded(
                 child: _metric(
                   '80% 区间覆盖率',
-                  '${(number(forecast.backtest['coverage']) * 100).toStringAsFixed(1)}%',
+                  forecast.hasBacktest
+                      ? '${(number(forecast.backtest['coverage']) * 100).toStringAsFixed(1)}%'
+                      : '—',
                 ),
               ),
               Expanded(
                 child: _metric(
                   '中位绝对误差',
-                  '${(number(forecast.backtest['median_error']) * 100).toStringAsFixed(1)}%',
+                  forecast.hasBacktest
+                      ? '${(number(forecast.backtest['median_error']) * 100).toStringAsFixed(1)}%'
+                      : '—',
                 ),
               ),
               Expanded(
-                child: _metric('回测样本', '${forecast.backtest['sample_count']}'),
+                child: _metric(
+                  '回测样本',
+                  forecast.hasBacktest
+                      ? '${forecast.backtest['sample_count']}'
+                      : '0',
+                ),
               ),
             ],
           ),
