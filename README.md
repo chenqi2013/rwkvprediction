@@ -2,6 +2,12 @@
 
 2026-11-02：Flutter 已接入 **端侧 Qwen2.5 0.5B**，通过 llama.cpp 在当前设备进程内推理，支持模型下载／GGUF 导入与离线试跑。新客户端的后端只提供行情，不运行模型，也不需要 Ollama。中位路径按目标插值，区间和概率按历史波动估算，尚未回测；离线演示保持模拟。使用与后续替换 RWKV 见 [端侧模型说明](backend/LOCAL_MODEL.md)。
 
+2026-11-03：已完成 Kronos-mini／small、当前端侧 Qwen 与简单基线的本地小样本比较。Kronos-small 在本轮 5 日预测中误差较低，20／60 日未超过价格不变基线，暂不替换 App 模型。见 [实测报告](docs/financial-model-evaluation-2026-11-03.md) 和 [评估工具](research/README.md)。该研究未校准产品展示的区间或概率。
+
+2026-11-04：追加测试约 1.023 亿参数的 Kronos-base，相同样本上未显示整体改善，推理中位耗时约为 small 的 3.3 倍。见 [base 对比报告](docs/financial-model-evaluation-2026-11-04.md)。
+
+2026-11-04：已将 Amazon Chronos-2 接入本地评估，测试仅收盘价与历史 OHLCV／成交额两种输入。20／60 日误差小于 Kronos，但三个周期仍未超过价格不变基线，App 模型保持不变。见 [Chronos-2 报告](docs/financial-model-evaluation-2026-11-04-chronos.md)。
+
 基于 SwiftUI 的 iOS ETF／指数预测原型，参考富途的行情详情结构。以「历史行情 → 概率走势 → 市场理解 → 预测下发」为主线，展示整段未来走势的区间，而不只是最高／最低目标价。
 
 跨平台 Flutter 客户端位于 [`flutter_prediction`](flutter_prediction/README.md)，包含 Android、iOS、macOS、Windows 和 Linux 工程，支持从 AKShare 名单搜索 A 股、ETF 和指数，选中后展示真实日线与本设备模型实验预测。真实行情获取仍使用 Python 服务；安装权重后，样例行情试跑完全离线。原生 SwiftUI 原型仍使用旧接口，尚未接入端侧模型，以下原生功能中的预测默认是模拟值。

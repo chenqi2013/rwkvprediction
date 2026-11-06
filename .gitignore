@@ -70,3 +70,15 @@ backend/.venv/
 backend/runtime/
 DerivedData/
 *.xcresult/
+research/.venv/
+research/runtime/
+
+# Keep this evaluation report even when a global ignore excludes docs.
+!/docs/
+/docs/*
+!/docs/financial-model-evaluation-2026-11-03.md
+!/docs/model-evaluation-2026-11-03/
+!/docs/financial-model-evaluation-2026-11-04.md
+!/docs/model-evaluation-2026-11-04/
+!/docs/financial-model-evaluation-2026-11-04-chronos.md
+!/docs/model-evaluation-2026-11-04-chronos/

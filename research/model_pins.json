@@ -1,0 +1,9 @@
+{
+  "source": {"repo": "https://github.com/shiyu-coder/Kronos.git", "revision": "67b630e67f6a18c9e9be918d9b4337c960db1e9a"},
+  "Chronos-2": {"repo": "amazon/chronos-2", "revision": "95a9710e2596287d08352589f42634fa5abdf0a7", "available_after": "2025-10-31", "package_version": "2.2.2"},
+  "Kronos-mini": {"repo": "NeoQuasar/Kronos-mini", "revision": "f4e68697d9d5aed55cef5c96aabc3376bcad9f81", "tokenizer": "Kronos-Tokenizer-2k", "max_context": 2048},
+  "Kronos-small": {"repo": "NeoQuasar/Kronos-small", "revision": "901c26c1332695a2a8f243eb2f37243a37bea320", "tokenizer": "Kronos-Tokenizer-base", "max_context": 512},
+  "Kronos-base": {"repo": "NeoQuasar/Kronos-base", "revision": "2b554741eca47781b64468546e77fef3e85130e6", "tokenizer": "Kronos-Tokenizer-base", "max_context": 512},
+  "Kronos-Tokenizer-2k": {"repo": "NeoQuasar/Kronos-Tokenizer-2k", "revision": "26966d0035065a0cae0ebad7af8ece35bc1fb51c"},
+  "Kronos-Tokenizer-base": {"repo": "NeoQuasar/Kronos-Tokenizer-base", "revision": "0e0117387f39004a9016484a186a908917e22426"}
+}

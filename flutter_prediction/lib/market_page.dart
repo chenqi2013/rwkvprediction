@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'forecast_chart.dart';
+import 'history_chart_page.dart';
 import 'device_model_page.dart';
 import 'market_controller.dart';
 import 'models.dart';
@@ -1270,12 +1271,36 @@ class _MarketPageState extends State<MarketPage> with WidgetsBindingObserver {
       children: [
         PanelTitle(
           '历史行情',
-          trailing: Text(
-            '近 ${snapshot.history.length} 个交易日',
-            style: TextStyle(
-              fontSize: 11,
-              color: MarketColors.of(context).secondary,
-            ),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '近 ${snapshot.history.length} 个交易日',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: MarketColors.of(context).secondary,
+                ),
+              ),
+              IconButton(
+                tooltip: usesMobileHistoryLayout(context) ? '横屏查看' : '全屏查看',
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => HistoryChartPage(
+                      snapshot: snapshot,
+                      forecast: forecast,
+                      confidence: model.confidence,
+                    ),
+                    fullscreenDialog: true,
+                  ),
+                ),
+                icon: Icon(
+                  usesMobileHistoryLayout(context)
+                      ? Icons.screen_rotation_rounded
+                      : Icons.fullscreen_rounded,
+                  size: 20,
+                ),
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 18),
