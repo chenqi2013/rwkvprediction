@@ -20,8 +20,8 @@ void main() {
   test('single Windows proxy covers HTTPS and redirected storage hosts', () {
     const proxy = WindowsDownloadProxy('127.0.0.1:7890', '');
     for (final url in [
-      'https://huggingface.co/model/resolve/main/model.gguf',
-      'https://storage.example.net/model.gguf',
+      'https://huggingface.co/model/resolve/main/model.safetensors',
+      'https://storage.example.net/model.safetensors',
       'http://example.net/file',
     ]) {
       expect(proxy.findProxy(Uri.parse(url)), 'PROXY 127.0.0.1:7890');
@@ -106,10 +106,10 @@ void main() {
           request.response.statusCode = HttpStatus.found;
           request.response.headers.set(
             HttpHeaders.locationHeader,
-            'http://model-storage.invalid/model.gguf',
+            'http://model-storage.invalid/model.safetensors',
           );
         } else {
-          request.response.add([0x47, 0x47, 0x55, 0x46]);
+          request.response.add([0x52, 0x57, 0x4b, 0x56]);
         }
         await request.response.close();
       });
@@ -126,10 +126,10 @@ void main() {
       );
       addTearDown(client.close);
       final response = await client
-          .get(Uri.parse('http://huggingface.invalid/model.gguf'))
+          .get(Uri.parse('http://huggingface.invalid/model.safetensors'))
           .timeout(const Duration(seconds: 5));
       expect(response.statusCode, 200);
-      expect(response.body, 'GGUF');
+      expect(response.body, 'RWKV');
       expect(requestedHosts, ['huggingface.invalid', 'model-storage.invalid']);
       expect(lookups, 1);
 

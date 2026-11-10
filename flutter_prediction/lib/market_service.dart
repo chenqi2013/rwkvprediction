@@ -5,8 +5,6 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 
 import 'api_request_log.dart';
-import 'device_forecast.dart';
-import 'device_model.dart';
 import 'models.dart';
 import 'minute_models.dart';
 
@@ -26,27 +24,16 @@ abstract class MarketService {
   Future<List<MarketAsset>> assets();
   Future<InstrumentSearch> search(String query, {String? kind, int offset = 0});
   Future<MarketSnapshot> snapshot(String symbol);
-  Future<Json> deliver(
-    MarketSnapshot snapshot,
-    Forecast forecast,
-    int confidence,
-    String channel,
-  );
   void cancelPending() {}
   void close() {}
 }
 
 class HttpMarketService extends MarketService {
-  HttpMarketService(
-    this.baseUrl, {
-    http.Client? client,
-    this.requestLog,
-    this.deviceModel,
-  }) : client = client ?? http.Client();
+  HttpMarketService(this.baseUrl, {http.Client? client, this.requestLog})
+    : client = client ?? http.Client();
   final String baseUrl;
   final http.Client client;
   ApiRequestLog? requestLog;
-  final DeviceModel? deviceModel;
   int _revision = 0;
 
   Future<dynamic> request(String path, {Json? body}) async {
@@ -80,7 +67,7 @@ class HttpMarketService extends MarketService {
       failure = '行情服务响应超时，请稍后重试。';
       throw MarketException(failure);
     } on http.ClientException {
-      failure = '无法连接 $baseUrl。手机请填写电脑局域网 IP，确认同一 Wi-Fi、后端已启动并允许本地网络访问。';
+      failure = '无法连接 $baseUrl，请检查网络连接或稍后重试。';
       throw MarketException(failure);
     } on FormatException {
       failure = '行情接口返回的数据格式无效。';
@@ -118,7 +105,7 @@ class HttpMarketService extends MarketService {
               },
         'error': failure,
         'data_note':
-            '实际 HTTP 请求与响应。行情来源以响应 source 为准；inference=device 仅请求行情，模型推理在本设备完成。离线演示不产生 HTTP 记录。',
+            '实际 HTTP 请求与响应。行情来源以响应 source 为准；日线接口仅请求行情；RWKV 分钟预测在本设备完成。离线演示不产生 HTTP 记录。',
       });
     }
   }
@@ -164,51 +151,19 @@ class HttpMarketService extends MarketService {
 
   @override
   Future<MarketSnapshot> snapshot(String symbol) async {
-    final runtime = deviceModel;
-    if (runtime == null) {
-      return MarketSnapshot(
-        Json.from(await request('v1/markets/${Uri.encodeComponent(symbol)}')),
-      );
-    }
-    final revision = ++_revision;
-    await runtime.initialize();
-    if (!runtime.ready) {
-      throw const MarketException('请先在设置 → 端侧模型中下载或导入 Qwen 模型');
-    }
+    final revision = _revision;
     final quote = Json.from(
       await request(
         'v1/markets/${Uri.encodeComponent(symbol)}?inference=device',
       ),
     );
     if (revision != _revision) throw const MarketException('行情请求已取消');
-    quote.remove('predictions');
-    return MarketSnapshot(await runtime.predict(quote));
+    return MarketSnapshot(quote);
   }
 
   @override
-  Future<Json> deliver(
-    MarketSnapshot snapshot,
-    Forecast forecast,
-    int confidence,
-    String channel,
-  ) async => forecast.isOnDevice
-      ? deviceReceipt(snapshot, forecast, confidence, channel)
-      : Json.from(
-          await request(
-            'v1/deliveries',
-            body: {
-              'symbol': snapshot.asset.symbol,
-              'instrument_id': snapshot.asset.id,
-              'prediction_id': forecast.id,
-              'confidence': confidence,
-              'channel': channel,
-            },
-          ),
-        );
-  @override
   void cancelPending() {
     ++_revision;
-    deviceModel?.cancel();
   }
 
   @override
@@ -273,31 +228,4 @@ class DemoMarketService extends MarketService {
     );
     return MarketSnapshot(data['snapshots'][asset.symbol]);
   }
-
-  @override
-  Future<Json> deliver(
-    MarketSnapshot snapshot,
-    Forecast forecast,
-    int confidence,
-    String channel,
-  ) async => {
-    'id': 'local-${DateTime.now().microsecondsSinceEpoch}',
-    'asset_name': snapshot.asset.name,
-    'symbol': snapshot.asset.symbol,
-    'instrument_id': snapshot.asset.id,
-    'prediction_id': forecast.id,
-    'created_at': DateTime.now().toUtc().toIso8601String(),
-    'channel': channel,
-    'forecast': {
-      'horizon': forecast.horizon,
-      'confidence': confidence,
-      'lower': forecast.last.lower(confidence),
-      'upper': forecast.last.upper(confidence),
-      'median': forecast.last.median,
-      'decimals': snapshot.asset.decimals,
-      'explanation': forecast.explanation,
-      'market_source': 'mock',
-      'as_of': snapshot.asOf,
-    },
-  };
 }

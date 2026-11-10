@@ -29,7 +29,6 @@ environment:
 # versions available, run `flutter pub outdated`.
 dependencies:
   crypto: ^3.0.7
-  llamadart: 0.17.4
   archive: ^4.5.2
   file_selector: ^1.1.0
   flutter:
@@ -43,7 +42,6 @@ dependencies:
   path_provider: ^2.1.6
   share_plus: ^13.3.1
   shared_preferences: ^2.5.4
-  url_launcher: ^6.3.2
   ffi: ^2.2.0
   native_toolchain_c: ^0.19.2
   hooks: ^2.0.2
@@ -75,16 +73,6 @@ flutter:
     - assets/rwkv/manifest.json
     - native/LICENSE-APACHE-2.0
     - native/THIRD_PARTY_NOTICES.md
-
-hooks:
-  user_defines:
-    llamadart:
-      llamadart_native_runtimes: llama_cpp
-      llamadart_native_backends:
-        platforms:
-          android: [cpu]
-          windows: [cpu]
-          linux: [cpu]
 
   # To add assets to your application, add an assets section, like this:
   # assets:

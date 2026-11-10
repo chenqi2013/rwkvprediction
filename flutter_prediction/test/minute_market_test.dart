@@ -147,7 +147,6 @@ void main() {
     expect(find.byType(MinuteMarketPage), findsOneWidget);
     expect(service.requests, isNotEmpty);
     expect(find.textContaining('分钟行情与请求的标的'), findsOneWidget);
-    expect(controller.deviceModel.ready, isFalse);
     await tester.pumpWidget(const SizedBox.shrink());
     controller.dispose();
   });

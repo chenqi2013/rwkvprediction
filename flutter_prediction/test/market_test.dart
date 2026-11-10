@@ -11,7 +11,8 @@ import 'package:rwkv_prediction/main.dart';
 import 'package:rwkv_prediction/market_controller.dart';
 import 'package:rwkv_prediction/market_service.dart';
 import 'package:rwkv_prediction/models.dart';
-import 'package:rwkv_prediction/forecast_chart.dart';
+import 'package:rwkv_prediction/history_chart.dart';
+import 'package:rwkv_prediction/minute_market_page.dart';
 import 'package:rwkv_prediction/sheets.dart';
 import 'package:rwkv_prediction/api_request_log.dart';
 
@@ -33,45 +34,23 @@ void main() {
   });
 
   test(
-    'HTTP contract decodes real source, sends selected forecast and confidence',
+    'daily quote requests never require or return model predictions',
     () async {
-      Json? delivered;
-      final snapshotJson = Json.from(fixture['snapshots']['510300'])
+      final data = Json.from(fixture['snapshots']['510300'])
         ..['source'] = 'akshare'
         ..['market_vendor'] = 'sina';
       final service = HttpMarketService(
         'http://localhost:8787/',
         client: MockClient((request) async {
-          if (request.method == 'POST') {
-            delivered = Json.from(jsonDecode(request.body));
-            expect(request.url.path, '/v1/deliveries');
-            return http.Response(jsonEncode({'id': 'test-receipt'}), 201);
-          }
-          return http.Response.bytes(
-            utf8.encode(
-              jsonEncode(
-                request.url.path == '/v1/assets'
-                    ? fixture['assets']
-                    : snapshotJson,
-              ),
-            ),
-            200,
-          );
+          expect(request.url.path, '/v1/markets/510300');
+          expect(request.url.queryParameters, {'inference': 'device'});
+          return http.Response.bytes(utf8.encode(jsonEncode(data)), 200);
         }),
       );
-      expect((await service.assets()).length, 5);
       final snapshot = await service.snapshot('510300');
       expect(snapshot.isLive, isTrue);
       expect(snapshot.vendor, 'sina');
-      final forecast = snapshot.predictions[60]!;
-      await service.deliver(snapshot, forecast, 95, 'in_app');
-      expect(delivered, {
-        'symbol': '510300',
-        'instrument_id': 'sh-etf-510300',
-        'prediction_id': forecast.id,
-        'confidence': 95,
-        'channel': 'in_app',
-      });
+      expect(snapshot.history, isNotEmpty);
       service.close();
     },
   );
@@ -103,7 +82,7 @@ void main() {
   );
 
   test(
-    'theme, favorites and issued forecast persist independently of later selection',
+    'theme and favorites persist independently of later selection',
     () async {
       final service = DemoMarketService();
       await service.assets();
@@ -112,9 +91,6 @@ void main() {
       await controller.load();
       await controller.setDark(false);
       await controller.toggleFavorite('510300');
-      controller.setHorizon(60);
-      controller.setConfidence(95);
-      final receipt = await controller.deliver('in_app');
       await controller.load(selectedSymbol: '000300');
       final restored = MarketController(
         preferences,
@@ -122,32 +98,24 @@ void main() {
       );
       expect(restored.dark, isFalse);
       expect(restored.favorites, contains('sh-etf-510300'));
-      expect(restored.deliveries.single['id'], receipt['id']);
-      expect(restored.deliveries.single['forecast']['horizon'], 60);
-      expect(restored.deliveries.single['forecast']['confidence'], 95);
-      expect(restored.deliveries.single['symbol'], '510300');
       controller.dispose();
       restored.dispose();
     },
   );
 
-  test('invalid address cannot replace active API configuration', () async {
+  test('saved addresses cannot override the fixed market server', () async {
+    await preferences.setString('baseUrl', 'http://127.0.0.1:8787');
     final controller = MarketController(
       preferences,
       service: DemoMarketService(),
     );
-    final original = controller.baseUrl;
-    await expectLater(
-      controller.configure('file:///tmp/fake', false),
-      throwsA(isA<MarketException>()),
-    );
-    expect(controller.baseUrl, original);
+    expect(controller.baseUrl, 'http://218.17.184.73:8787');
     controller.dispose();
   });
 
-  test('invalid quantile ordering is rejected', () {
+  test('invalid history is rejected', () {
     final data = Json.from(fixture['snapshots']['510300']);
-    data['predictions']['20']['points'][0]['p10'] = 100000;
+    data['history'][0]['close'] = -1;
     expect(() => MarketSnapshot(data), throwsFormatException);
   });
 
@@ -438,143 +406,80 @@ void main() {
     },
   );
 
-  testWidgets(
-    'local model provenance, measured usage and missing backtest display correctly',
-    (tester) async {
-      tester.view.physicalSize = const Size(390, 844);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      final snapshotJson =
-          Json.from(jsonDecode(jsonEncode(fixture['snapshots']['510300'])))
-            ..['source'] = 'akshare'
-            ..['forecast_source'] = 'local_model'
-            ..['model'] = 'qwen2.5:0.5b';
-      for (final value in snapshotJson['predictions'].values) {
-        value['source'] = 'local_model';
-        value['model'] = 'qwen2.5:0.5b';
-        value['usage'] = {
-          'input_tokens': 861,
-          'output_tokens': 113,
-          'latency_ms': 1227,
-          'source': 'measured',
-          'model': 'qwen2.5:0.5b',
-        };
-        value['backtest'] = {
-          'status': 'not_evaluated',
-          'coverage': 0,
-          'median_error': 0,
-          'sample_count': 0,
-          'description': '尚未开展该模型的历史回测。',
-        };
-      }
-      final service = HttpMarketService(
-        'http://localhost:8787',
-        client: MockClient(
-          (request) async =>
-              http.Response.bytes(utf8.encode(jsonEncode(snapshotJson)), 200),
-        ),
-      );
-      final controller = MarketController(
-        preferences,
-        service: service,
-        requestLog: NoDiskRequestLog(),
-      );
-      await tester.pumpWidget(PredictionApp(controller: controller));
-      await tester.pumpAndSettle();
-      expect(find.text('qwen2.5:0.5b'), findsOneWidget);
-      expect(find.text('本地模型 · 实验'), findsOneWidget);
-      expect(
-        predictionReport(controller.snapshot!, controller.forecast!, 80),
-        contains('qwen2.5:0.5b · 本地实验'),
-      );
-      await tester.ensureVisible(find.text('预测表现'));
-      await tester.pumpAndSettle();
-      expect(find.text('尚未回测'), findsOneWidget);
-      expect(find.text('—'), findsNWidgets(2));
-      expect(find.text('0.0%'), findsNothing);
-      await tester.ensureVisible(find.text('推理用量与成本估算'));
-      await tester.tap(find.text('推理用量与成本估算'));
-      await tester.pumpAndSettle();
-      expect(find.text('实测耗时'), findsOneWidget);
-      expect(find.text('1227 ms'), findsOneWidget);
-      expect(find.text('861'), findsOneWidget);
-      expect(find.text('113'), findsOneWidget);
-      expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox.shrink());
-      controller.dispose();
-    },
-  );
-
   for (final size in [const Size(390, 844), const Size(1440, 1000)]) {
-    testWidgets('forecast, theme, chart and delivery work at ${size.width}px', (
-      tester,
-    ) async {
-      tester.view.physicalSize = size;
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      final service = DemoMarketService();
-      await tester.runAsync(service.assets);
-      final controller = MarketController(preferences, service: service);
-      await tester.pumpWidget(PredictionApp(controller: controller));
-      await tester.pumpAndSettle();
-      expect(find.text('走势预测'), findsOneWidget);
-      expect(find.text('模拟行情 · 离线演示'), findsWidgets);
-      if (size.width >= 1100) {
-        expect(find.text('最近浏览'), findsOneWidget);
-      }
-      await tester.tap(find.byKey(const ValueKey('quick-sz-etf-159915')));
-      await tester.pumpAndSettle();
-      expect(controller.snapshot?.asset.symbol, '159915');
-      await tester.tap(find.byIcon(Icons.candlestick_chart_outlined));
-      await tester.pumpAndSettle();
-      expect(find.text('历史行情'), findsOneWidget);
-      await tester.tap(find.byIcon(Icons.graphic_eq).last);
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('horizon-5')));
-      await tester.pumpAndSettle();
-      expect(controller.horizon, 5);
-      await tester.tap(find.text('80% 区间').first);
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('95% 预测区间'));
-      await tester.pumpAndSettle();
-      expect(controller.confidence, 95);
-      final chart = find.byType(ForecastChart).first;
-      await tester.ensureVisible(chart);
-      await tester.drag(chart, const Offset(70, 0));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('设置'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byType(Switch).first);
-      await tester.pumpAndSettle();
-      expect(controller.dark, isFalse);
-      await tester.tap(find.text('完成'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('下发预测'));
-      await tester.pumpAndSettle();
-      final confirm = find.text('确认下发');
-      await tester.ensureVisible(confirm);
-      await tester.tap(confirm);
-      await tester.pumpAndSettle();
-      expect(find.text('预测已下发'), findsOneWidget);
-      expect(controller.deliveries.single['forecast']['confidence'], 95);
-      await tester.tap(find.text('完成'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('搜索 ETF、指数和股票'));
-      await tester.pumpAndSettle();
-      final indexRow = find.byKey(const ValueKey('asset-sh-index-000300'));
-      await tester.tap(
-        find.descendant(of: indexRow, matching: find.byType(IconButton)),
-      );
-      await tester.pumpAndSettle();
-      expect(controller.favorites, contains('sh-index-000300'));
-      await tester.tap(find.byKey(const ValueKey('asset-sh-index-000300')));
-      await tester.pumpAndSettle();
-      expect(controller.snapshot?.asset.symbol, '000300');
-      expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox.shrink());
-      controller.dispose();
-    });
+    testWidgets(
+      'quotes, theme, historical chart and search work at ${size.width}px',
+      (tester) async {
+        tester.view.physicalSize = size;
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final service = DemoMarketService();
+        await tester.runAsync(service.assets);
+        final controller = MarketController(preferences, service: service);
+        await tester.pumpWidget(PredictionApp(controller: controller));
+        await tester.pumpAndSettle();
+        expect(find.text('历史行情'), findsOneWidget);
+        expect(find.text('下发预测'), findsNothing);
+        expect(find.text('RWKV'), findsOneWidget);
+        expect(find.text('模拟行情 · 离线演示'), findsWidgets);
+        if (size.width >= 1100) {
+          expect(find.text('最近浏览'), findsOneWidget);
+        }
+        final recentOrder = controller.assets.map((asset) => asset.id).toList();
+        final recentEntry = find.byKey(const ValueKey('quick-sz-etf-159915'));
+        final recentPosition = tester.getTopLeft(recentEntry);
+        await tester.tap(recentEntry);
+        await tester.pumpAndSettle();
+        expect(controller.snapshot?.asset.symbol, '159915');
+        expect(controller.assets.map((asset) => asset.id), recentOrder);
+        expect(tester.getTopLeft(recentEntry), recentPosition);
+        await controller.load();
+        await tester.pumpAndSettle();
+        expect(controller.assets.map((asset) => asset.id), recentOrder);
+        expect(tester.getTopLeft(recentEntry), recentPosition);
+        await tester.tap(find.byIcon(Icons.candlestick_chart_outlined));
+        await tester.pumpAndSettle();
+        expect(find.text('历史行情'), findsOneWidget);
+        final chart = find.byType(HistoryChart).first;
+        await tester.ensureVisible(chart);
+        await tester.drag(chart, const Offset(70, 0));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('设置'));
+        await tester.pumpAndSettle();
+        final serviceAddress = tester.widget<TextField>(
+          find.byKey(const ValueKey('service-address')),
+        );
+        expect(serviceAddress.readOnly, isTrue);
+        expect(serviceAddress.controller?.text, 'http://218.17.184.73:8787');
+        final rwkvEntry = find.byKey(const ValueKey('rwkv-model-entry'));
+        expect(rwkvEntry, findsOneWidget);
+        await tester.ensureVisible(rwkvEntry);
+        await tester.tap(rwkvEntry);
+        await tester.pumpAndSettle();
+        expect(find.byType(MinuteMarketPage), findsOneWidget);
+        await tester.tap(find.byType(BackButton));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byType(Switch).first);
+        await tester.pumpAndSettle();
+        expect(controller.dark, isFalse);
+        await tester.tap(find.text('完成'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('搜索 ETF、指数和股票'));
+        await tester.pumpAndSettle();
+        final indexRow = find.byKey(const ValueKey('asset-sh-index-000300'));
+        await tester.tap(
+          find.descendant(of: indexRow, matching: find.byType(IconButton)),
+        );
+        await tester.pumpAndSettle();
+        expect(controller.favorites, contains('sh-index-000300'));
+        await tester.tap(find.byKey(const ValueKey('asset-sh-index-000300')));
+        await tester.pumpAndSettle();
+        expect(controller.snapshot?.asset.symbol, '000300');
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+        controller.dispose();
+      },
+    );
   }
 }

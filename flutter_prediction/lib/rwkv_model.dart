@@ -126,7 +126,7 @@ class RwkvModel extends ChangeNotifier {
         });
       }
       _directory ??= Directory(
-        '${(await getApplicationSupportDirectory()).path}/models/rwkv7-ashare-21m',
+        '${Platform.isWindows ? File(Platform.resolvedExecutable).parent.path : (await getApplicationSupportDirectory()).path}/models/rwkv7-ashare-21m',
       );
       await _directory!.create(recursive: true);
       final manifest =
@@ -198,7 +198,7 @@ class RwkvModel extends ChangeNotifier {
                   http.Request(
                     'GET',
                     Uri.parse(
-                      'https://huggingface.co/$rwkvRepo/resolve/$rwkvRevision/${entry.key}',
+                      'https://hf-mirror.com/$rwkvRepo/resolve/$rwkvRevision/${entry.key}',
                     ),
                   ),
                 )

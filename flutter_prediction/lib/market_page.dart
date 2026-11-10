@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 
-import 'forecast_chart.dart';
+import 'history_chart.dart';
 import 'history_chart_page.dart';
-import 'device_model_page.dart';
 import 'market_controller.dart';
 import 'models.dart';
 import 'minute_market_page.dart';
@@ -16,30 +15,19 @@ class MarketPage extends StatefulWidget {
   State<MarketPage> createState() => _MarketPageState();
 }
 
-class _MarketPageState extends State<MarketPage> with WidgetsBindingObserver {
+class _MarketPageState extends State<MarketPage> {
   MarketController get model => widget.controller;
-  int section = 1;
   final scrollController = ScrollController();
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) model.load();
     });
   }
 
   @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.detached) {
-      model.deviceModel.cancel();
-    }
-  }
-
-  @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
     scrollController.dispose();
     super.dispose();
   }
@@ -55,11 +43,6 @@ class _MarketPageState extends State<MarketPage> with WidgetsBindingObserver {
       ),
     ),
   );
-  void setSection(int value) {
-    setState(() => section = value);
-    if (scrollController.hasClients) scrollController.jumpTo(0);
-  }
-
   @override
   Widget build(BuildContext context) {
     final colors = MarketColors.of(context);
@@ -191,16 +174,6 @@ class _MarketPageState extends State<MarketPage> with WidgetsBindingObserver {
             tooltip: '分钟行情',
             onPressed: minutes,
             icon: const Icon(Icons.timeline, size: 22),
-          ),
-          IconButton(
-            tooltip: '下发记录',
-            onPressed: () => show(HistorySheet(controller: model)),
-            icon: Badge(
-              isLabelVisible: model.deliveries.isNotEmpty,
-              smallSize: 5,
-              backgroundColor: colors.orange,
-              child: const Icon(Icons.notifications_none_rounded, size: 22),
-            ),
           ),
           IconButton(
             tooltip: '设置',
@@ -359,21 +332,10 @@ class _MarketPageState extends State<MarketPage> with WidgetsBindingObserver {
               icon: const Icon(Icons.refresh),
               label: const Text('重新加载'),
             ),
-            TextButton(
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => DeviceModelPage(
-                    model: model.deviceModel,
-                    onRefresh: model.load,
-                  ),
-                ),
-              ),
-              child: const Text('下载或试跑端侧模型'),
-            ),
             TextButton(onPressed: minutes, child: const Text('查看分钟行情（无需模型）')),
             TextButton(
               onPressed: () => show(SettingsSheet(controller: model)),
-              child: const Text('设置行情服务地址'),
+              child: const Text('查看行情服务设置'),
             ),
           ],
         ],
@@ -383,146 +345,30 @@ class _MarketPageState extends State<MarketPage> with WidgetsBindingObserver {
 
   Widget _content(BuildContext context) {
     final snapshot = model.snapshot!;
-    final forecast = model.forecast!;
     final colors = MarketColors.of(context);
     return Column(
       children: [
         if (MediaQuery.sizeOf(context).width < 1100) _watchlist(),
         _quote(snapshot),
-        Container(
-          color: colors.surface,
-          padding: const EdgeInsets.symmetric(horizontal: 22),
-          child: Row(
-            children: ['行情', 'AI 预测', '市场解读'].indexed
-                .map(
-                  (entry) => InkWell(
-                    onTap: () => setSection(entry.$1),
-                    child: Padding(
-                      padding: const EdgeInsets.only(right: 30, top: 12),
-                      child: Column(
-                        children: [
-                          Text(
-                            entry.$2,
-                            style: TextStyle(
-                              fontSize: 15,
-                              color: section == entry.$1
-                                  ? colors.ink
-                                  : colors.secondary,
-                              fontWeight: section == entry.$1
-                                  ? FontWeight.w600
-                                  : FontWeight.normal,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Container(
-                            width: 25,
-                            height: 3,
-                            decoration: BoxDecoration(
-                              color: section == entry.$1
-                                  ? colors.orange
-                                  : Colors.transparent,
-                              borderRadius: BorderRadius.circular(3),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                )
-                .toList(),
-          ),
-        ),
         if (model.error != null)
-          Container(
-            color: colors.orangeSoft,
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    '刷新失败，保留原行情：${model.error}',
-                    style: TextStyle(fontSize: 11, color: colors.orange),
-                  ),
-                ),
-                TextButton(
-                  onPressed: model.loading ? null : model.load,
-                  child: const Text('重试'),
-                ),
-              ],
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text(
+              '刷新失败，保留原行情：${model.error}',
+              style: TextStyle(color: colors.orange),
             ),
           ),
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final wide = constraints.maxWidth >= 900;
-            final left = Column(
-              children: [
-                if (section == 0)
-                  _history(snapshot, forecast)
-                else if (section == 1)
-                  _forecast(snapshot, forecast)
-                else
-                  _insight(forecast, expanded: true),
-                const SizedBox(height: 8),
-                if (section == 0)
-                  _marketDetails(snapshot.asset)
-                else
-                  _scenarios(snapshot.asset, forecast),
-                if (!wide && section != 0) ...[
-                  const SizedBox(height: 8),
-                  if (section == 1) _insight(forecast),
-                  if (section == 1) const SizedBox(height: 8),
-                  _evaluation(forecast),
-                ],
-              ],
-            );
-            return Padding(
-              padding: EdgeInsets.all(wide ? 12 : 0),
-              child: wide
-                  ? Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(flex: 8, child: left),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          flex: 5,
-                          child: Column(
-                            children: [
-                              if (section == 1)
-                                _insight(forecast)
-                              else if (section == 0)
-                                _insight(forecast),
-                              if (section != 2) const SizedBox(height: 8),
-                              _evaluation(forecast),
-                            ],
-                          ),
-                        ),
-                      ],
-                    )
-                  : left,
-            );
-          },
-        ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(24, 4, 24, 24),
+          padding: const EdgeInsets.all(12),
           child: Column(
             children: [
-              Text(
-                '${snapshot.sourceLabel}  ·  ${snapshot.forecastLabel}',
-                style: TextStyle(
-                  color: colors.secondary,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
+              _history(snapshot),
               const SizedBox(height: 8),
+              _marketDetails(snapshot.asset),
+              const SizedBox(height: 16),
               Text(
-                '${snapshot.description}\n概率区间不代表收益保证，不构成投资建议。',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: colors.secondary,
-                  fontSize: 10,
-                  height: 1.7,
-                ),
+                snapshot.description,
+                style: TextStyle(color: colors.secondary, fontSize: 12),
               ),
             ],
           ),
@@ -730,228 +576,6 @@ class _MarketPageState extends State<MarketPage> with WidgetsBindingObserver {
     );
   }
 
-  Widget _forecast(MarketSnapshot snapshot, Forecast forecast) {
-    final colors = MarketColors.of(context);
-    final asset = snapshot.asset;
-    final trendColor = forecast.last.median >= asset.price
-        ? colors.red
-        : colors.green;
-    return MarketPanel(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Text(
-                '走势预测',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(width: 8),
-              Flexible(
-                child: MarketBadge(forecast.modelLabel, icon: Icons.graphic_eq),
-              ),
-              const Spacer(),
-              IconButton(
-                tooltip: '预测方法与区间说明',
-                visualDensity: VisualDensity.compact,
-                onPressed: () => show(MethodSheet(snapshot: snapshot)),
-                icon: Icon(
-                  Icons.info_outline,
-                  size: 18,
-                  color: colors.secondary,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 3),
-          Row(
-            children: [
-              Icon(Icons.sync, size: 12, color: colors.secondary),
-              const SizedBox(width: 5),
-              Expanded(
-                child: Text(
-                  '数据截至 ${snapshot.asOf.substring(0, 10).replaceAll('-', '/')} 15:00',
-                  style: TextStyle(fontSize: 10, color: colors.secondary),
-                ),
-              ),
-              Text(
-                forecast.sourceLabel,
-                style: TextStyle(color: colors.orange, fontSize: 10),
-              ),
-            ],
-          ),
-          const SizedBox(height: 18),
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(3),
-                decoration: BoxDecoration(
-                  color: colors.canvas,
-                  borderRadius: BorderRadius.circular(9),
-                ),
-                child: Row(
-                  children: [5, 20, 60]
-                      .map(
-                        (days) => InkWell(
-                          key: ValueKey('horizon-$days'),
-                          borderRadius: BorderRadius.circular(6),
-                          onTap: () => model.setHorizon(days),
-                          child: Container(
-                            width: 46,
-                            height: 29,
-                            alignment: Alignment.center,
-                            decoration: BoxDecoration(
-                              color: model.horizon == days
-                                  ? colors.selected
-                                  : Colors.transparent,
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              '$days日',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: model.horizon == days
-                                    ? colors.ink
-                                    : colors.secondary,
-                                fontWeight: model.horizon == days
-                                    ? FontWeight.w600
-                                    : FontWeight.normal,
-                              ),
-                            ),
-                          ),
-                        ),
-                      )
-                      .toList(),
-                ),
-              ),
-              const Spacer(),
-              PopupMenuButton<int>(
-                tooltip: '预测区间',
-                initialValue: model.confidence,
-                onSelected: model.setConfidence,
-                itemBuilder: (_) => [80, 95]
-                    .map(
-                      (value) => PopupMenuItem(
-                        value: value,
-                        child: Text('$value% 预测区间'),
-                      ),
-                    )
-                    .toList(),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Row(
-                    children: [
-                      Text(
-                        '${model.confidence}% 区间',
-                        style: TextStyle(fontSize: 11, color: colors.secondary),
-                      ),
-                      Icon(
-                        Icons.keyboard_arrow_down,
-                        size: 15,
-                        color: colors.secondary,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 17),
-          Wrap(
-            crossAxisAlignment: WrapCrossAlignment.center,
-            spacing: 8,
-            runSpacing: 4,
-            children: [
-              Icon(
-                forecast.last.median >= asset.price
-                    ? Icons.trending_up
-                    : Icons.trending_down,
-                size: 17,
-                color: trendColor,
-              ),
-              Text(
-                forecast.trend,
-                style: TextStyle(
-                  color: trendColor,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              Text(
-                '│',
-                style: TextStyle(color: trendColor.withValues(alpha: .4)),
-              ),
-              Text(
-                '${forecast.isLocalModel ? '上涨概率估计' : '上涨概率'}  ${(forecast.upProbability * 100).toStringAsFixed(0)}%',
-                style: TextStyle(color: trendColor, fontSize: 12),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          ForecastChart(
-            snapshot: snapshot,
-            forecast: forecast,
-            confidence: model.confidence,
-          ),
-          _legends(),
-          const SizedBox(height: 18),
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 6),
-            decoration: BoxDecoration(
-              color: colors.canvas,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: _metric(
-                    '区间下沿',
-                    asset.format(forecast.last.lower(model.confidence)),
-                    detail: asset.percent(
-                      forecast.last.lower(model.confidence),
-                    ),
-                    color: colors.green,
-                  ),
-                ),
-                Container(width: 1, height: 36, color: colors.line),
-                Expanded(
-                  child: _metric(
-                    '中位预期',
-                    asset.format(forecast.last.median),
-                    detail: asset.percent(forecast.last.median),
-                    color: colors.orange,
-                  ),
-                ),
-                Container(width: 1, height: 36, color: colors.line),
-                Expanded(
-                  child: _metric(
-                    '区间上沿',
-                    asset.format(forecast.last.upper(model.confidence)),
-                    detail: asset.percent(
-                      forecast.last.upper(model.confidence),
-                    ),
-                    color: colors.red,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 13),
-          Row(
-            children: [
-              Icon(Icons.schedule, size: 12, color: colors.secondary),
-              const SizedBox(width: 6),
-              Text(
-                '未来 ${forecast.horizon} 个交易日 · 期末价格区间',
-                style: TextStyle(fontSize: 10, color: colors.secondary),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _metric(String title, String value, {String? detail, Color? color}) {
     final colors = MarketColors.of(context);
     return Column(
@@ -976,313 +600,7 @@ class _MarketPageState extends State<MarketPage> with WidgetsBindingObserver {
     );
   }
 
-  Widget _legends({bool historicalOnly = false}) {
-    final colors = MarketColors.of(context);
-    Widget legend(String label, Color color) => Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 11,
-          height: 3,
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(2),
-          ),
-        ),
-        const SizedBox(width: 4),
-        Text(label, style: TextStyle(fontSize: 10, color: colors.secondary)),
-      ],
-    );
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        legend('历史走势', colors.blue),
-        if (!historicalOnly) ...[
-          const SizedBox(width: 16),
-          legend('中位走势', colors.orange),
-          const SizedBox(width: 16),
-          legend(
-            '${model.confidence}% 区间',
-            colors.orange.withValues(alpha: .4),
-          ),
-        ],
-      ],
-    );
-  }
-
-  Widget _insight(Forecast forecast, {bool expanded = false}) {
-    final colors = MarketColors.of(context);
-    return MarketPanel(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.auto_awesome_outlined, color: colors.orange, size: 18),
-              const SizedBox(width: 8),
-              const Expanded(
-                child: Text(
-                  '读懂这次预测',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                ),
-              ),
-              if (!expanded)
-                TextButton(
-                  onPressed: () => setSection(2),
-                  child: Text(
-                    '完整解读 ›',
-                    style: TextStyle(fontSize: 10, color: colors.secondary),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            forecast.explanation,
-            style: TextStyle(fontSize: 12, color: colors.body, height: 1.9),
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 7,
-            runSpacing: 7,
-            children: forecast.drivers.indexed.map((entry) {
-              final color = entry.$1 == 2 ? colors.orange : colors.green;
-              return Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: .07),
-                  borderRadius: BorderRadius.circular(5),
-                ),
-                child: Text(
-                  '● ${entry.$2['title']} ${entry.$2['value']}',
-                  style: TextStyle(fontSize: 9, color: color),
-                ),
-              );
-            }).toList(),
-          ),
-          if (expanded) ...[
-            const SizedBox(height: 8),
-            const Divider(),
-            ...forecast.drivers.map(
-              (driver) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 9),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            driver['title'],
-                            style: const TextStyle(fontSize: 13),
-                          ),
-                        ),
-                        Text(
-                          driver['value'],
-                          style: TextStyle(color: colors.orange, fontSize: 12),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      driver['detail'],
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: colors.secondary,
-                        height: 1.7,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _scenarios(MarketAsset asset, Forecast forecast) {
-    final colors = MarketColors.of(context);
-    return MarketPanel(
-      child: Column(
-        children: [
-          PanelTitle(
-            '三种市场情景',
-            trailing: Text(
-              '期末目标 · CNY',
-              style: TextStyle(fontSize: 10, color: colors.secondary),
-            ),
-          ),
-          const SizedBox(height: 6),
-          ...forecast.scenarios.indexed.map((entry) {
-            final scenario = entry.$2;
-            final color = [
-              colors.red,
-              colors.orange,
-              colors.green,
-            ][entry.$1 % 3];
-            final target = number(scenario['target']);
-            return Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 3,
-                        height: 30,
-                        decoration: BoxDecoration(
-                          color: color,
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Wrap(
-                              spacing: 7,
-                              children: [
-                                Text(
-                                  scenario['name'],
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                                Text(
-                                  '${(number(scenario['probability']) * 100).toStringAsFixed(0)}%',
-                                  style: TextStyle(
-                                    color: colors.secondary,
-                                    fontSize: 11,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 5),
-                            Text(
-                              scenario['detail'],
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: colors.secondary,
-                                height: 1.5,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text(
-                            asset.format(target),
-                            style: TextStyle(
-                              fontSize: 17,
-                              color: color,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            asset.percent(target),
-                            style: TextStyle(fontSize: 10, color: color),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                if (entry.$1 < forecast.scenarios.length - 1)
-                  Divider(height: 1, color: colors.line),
-              ],
-            );
-          }),
-        ],
-      ),
-    );
-  }
-
-  Widget _evaluation(Forecast forecast) {
-    final colors = MarketColors.of(context);
-    return MarketPanel(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          PanelTitle(
-            '预测表现',
-            trailing: Text(
-              forecast.hasBacktest ? '模拟回测' : '尚未回测',
-              style: TextStyle(color: colors.secondary, fontSize: 10),
-            ),
-          ),
-          const SizedBox(height: 22),
-          Row(
-            children: [
-              Expanded(
-                child: _metric(
-                  '80% 区间覆盖率',
-                  forecast.hasBacktest
-                      ? '${(number(forecast.backtest['coverage']) * 100).toStringAsFixed(1)}%'
-                      : '—',
-                ),
-              ),
-              Expanded(
-                child: _metric(
-                  '中位绝对误差',
-                  forecast.hasBacktest
-                      ? '${(number(forecast.backtest['median_error']) * 100).toStringAsFixed(1)}%'
-                      : '—',
-                ),
-              ),
-              Expanded(
-                child: _metric(
-                  '回测样本',
-                  forecast.hasBacktest
-                      ? '${forecast.backtest['sample_count']}'
-                      : '0',
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 18),
-          Text(
-            forecast.backtest['description'],
-            style: TextStyle(
-              color: colors.secondary,
-              fontSize: 10,
-              height: 1.6,
-            ),
-          ),
-          const SizedBox(height: 8),
-          const Divider(),
-          InkWell(
-            onTap: () => show(CostSheet(usage: forecast.usage)),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 6),
-              child: Row(
-                children: [
-                  Icon(Icons.memory, size: 16, color: colors.secondary),
-                  const SizedBox(width: 7),
-                  Expanded(
-                    child: Text(
-                      '推理用量与成本估算',
-                      style: TextStyle(color: colors.secondary, fontSize: 11),
-                    ),
-                  ),
-                  Icon(Icons.chevron_right, size: 16, color: colors.secondary),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _history(MarketSnapshot snapshot, Forecast forecast) => MarketPanel(
+  Widget _history(MarketSnapshot snapshot) => MarketPanel(
     child: Column(
       children: [
         PanelTitle(
@@ -1301,11 +619,7 @@ class _MarketPageState extends State<MarketPage> with WidgetsBindingObserver {
                 tooltip: usesMobileHistoryLayout(context) ? '横屏查看' : '全屏查看',
                 onPressed: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
-                    builder: (_) => HistoryChartPage(
-                      snapshot: snapshot,
-                      forecast: forecast,
-                      confidence: model.confidence,
-                    ),
+                    builder: (_) => HistoryChartPage(snapshot: snapshot),
                     fullscreenDialog: true,
                   ),
                 ),
@@ -1320,14 +634,7 @@ class _MarketPageState extends State<MarketPage> with WidgetsBindingObserver {
           ),
         ),
         const SizedBox(height: 18),
-        ForecastChart(
-          snapshot: snapshot,
-          forecast: forecast,
-          confidence: model.confidence,
-          historicalOnly: true,
-          height: 280,
-        ),
-        _legends(historicalOnly: true),
+        HistoryChart(snapshot: snapshot, height: 280),
       ],
     ),
   );
@@ -1373,23 +680,15 @@ class _MarketPageState extends State<MarketPage> with WidgetsBindingObserver {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
             child: Row(
               children: [
-                _navItem(
-                  '行情',
-                  Icons.candlestick_chart_outlined,
-                  () => setSection(0),
-                  selected: section == 0,
-                ),
+                _navItem('行情', Icons.candlestick_chart_outlined, () {
+                  if (scrollController.hasClients) scrollController.jumpTo(0);
+                }, selected: true),
                 _navItem(
                   '自选',
                   Icons.star_border_rounded,
                   () => assets(favoritesOnly: true),
                 ),
-                _navItem(
-                  '预测',
-                  Icons.graphic_eq,
-                  () => setSection(1),
-                  selected: section == 1,
-                ),
+                _navItem('RWKV', Icons.graphic_eq, minutes),
                 const Spacer(),
                 IconButton(
                   tooltip: '刷新行情',
@@ -1398,14 +697,9 @@ class _MarketPageState extends State<MarketPage> with WidgetsBindingObserver {
                 ),
                 const SizedBox(width: 6),
                 FilledButton.icon(
-                  onPressed: model.forecast == null || model.loading
-                      ? null
-                      : () => show(DeliverySheet(controller: model)),
-                  icon: const Icon(Icons.send_rounded, size: 16),
-                  label: const Text(
-                    '下发预测',
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                  ),
+                  onPressed: minutes,
+                  icon: const Icon(Icons.auto_graph, size: 16),
+                  label: const Text('分钟预测', style: TextStyle(fontSize: 13)),
                 ),
               ],
             ),

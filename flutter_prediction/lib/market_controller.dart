@@ -4,8 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api_request_log.dart';
-import 'device_model.dart';
-import 'device_forecast.dart';
 import 'market_service.dart';
 import 'models.dart';
 import 'minute_models.dart';
@@ -15,11 +13,8 @@ class MarketController extends ChangeNotifier {
     this.preferences, {
     MarketService? service,
     ApiRequestLog? requestLog,
-    DeviceModel? deviceModel,
   }) : requestLog = requestLog ?? ApiRequestLog(),
-       deviceModel = deviceModel ?? DeviceModel(),
        dark = preferences.getBool('dark') ?? true,
-       baseUrl = preferences.getString('baseUrl') ?? defaultBaseUrl,
        demo = const bool.fromEnvironment('DEMO_MODE'),
        favorites = (preferences.getStringList('favorites') ?? []).toSet() {
     _service = service ?? _makeService();
@@ -38,32 +33,16 @@ class MarketController extends ChangeNotifier {
     } on FormatException {
       preferences.remove('instruments');
     }
-    try {
-      deliveries =
-          (jsonDecode(preferences.getString('deliveries') ?? '[]') as List)
-              .map((value) => Json.from(value))
-              .toList();
-    } on FormatException {
-      deliveries = [];
-    }
   }
-  static String get defaultBaseUrl {
-    const configured = String.fromEnvironment('API_BASE_URL');
-    if (configured.isNotEmpty) return configured;
-    return !kIsWeb && defaultTargetPlatform == TargetPlatform.android
-        ? 'http://10.0.2.2:8787'
-        : 'http://127.0.0.1:8787';
-  }
+  static const defaultBaseUrl = 'http://218.17.184.73:8787';
 
   final SharedPreferences preferences;
   final ApiRequestLog requestLog;
-  final DeviceModel deviceModel;
   late MarketService _service;
   bool dark;
-  String baseUrl;
+  String get baseUrl => defaultBaseUrl;
   bool demo;
   Set<String> favorites;
-  List<Json> deliveries = [];
   static String legacyIdentity(String value) => switch (value) {
     '000001' || '000300' => 'sh-index-$value',
     '510300' || '588000' => 'sh-etf-$value',
@@ -87,20 +66,13 @@ class MarketController extends ChangeNotifier {
   ];
   MarketSnapshot? snapshot;
   String symbol = '510300';
-  int horizon = 20;
-  int confidence = 80;
   bool loading = false;
   String? error;
   int _generation = 0;
   bool _disposed = false;
-  Forecast? get forecast => snapshot?.predictions[horizon];
   MarketService _makeService() => demo
       ? DemoMarketService()
-      : HttpMarketService(
-          baseUrl,
-          requestLog: requestLog,
-          deviceModel: deviceModel,
-        );
+      : HttpMarketService(baseUrl, requestLog: requestLog);
   Future<void> load({String? selectedSymbol}) async {
     final generation = ++_generation;
     if (selectedSymbol != null) symbol = selectedSymbol;
@@ -114,7 +86,6 @@ class MarketController extends ChangeNotifier {
     _service.cancelPending();
     notifyListeners();
     try {
-      await deviceModel.cancelAndWait();
       if (_disposed || generation != _generation) return;
       final updatedSnapshot = await _service.snapshot(requested);
       if (_disposed || generation != _generation) return;
@@ -124,8 +95,12 @@ class MarketController extends ChangeNotifier {
       }
       snapshot = updatedSnapshot;
       symbol = updatedSnapshot.asset.id;
-      assets.removeWhere((item) => item.id == symbol);
-      assets.insert(0, updatedSnapshot.asset);
+      final assetIndex = assets.indexWhere((item) => item.id == symbol);
+      if (assetIndex < 0) {
+        assets.insert(0, updatedSnapshot.asset);
+      } else {
+        assets[assetIndex] = updatedSnapshot.asset;
+      }
       await preferences.setString(
         'instruments',
         jsonEncode(assets.map((asset) => asset.metadata).toList()),
@@ -158,16 +133,6 @@ class MarketController extends ChangeNotifier {
     await preferences.setBool('dark', value);
   }
 
-  void setHorizon(int value) {
-    horizon = value;
-    notifyListeners();
-  }
-
-  void setConfidence(int value) {
-    confidence = value;
-    notifyListeners();
-  }
-
   Future<void> toggleFavorite(
     String value, {
     MarketInstrument? instrument,
@@ -190,42 +155,14 @@ class MarketController extends ChangeNotifier {
     await preferences.setStringList('favorites', favorites.toList());
   }
 
-  Future<void> configure(String address, bool useDemo) async {
-    final uri = Uri.tryParse(address.trim());
-    if (uri == null ||
-        !['http', 'https'].contains(uri.scheme) ||
-        uri.host.isEmpty ||
-        uri.userInfo.isNotEmpty ||
-        uri.hasQuery ||
-        uri.hasFragment) {
-      throw const MarketException(
-        '请输入有效的 HTTP 或 HTTPS 地址，例如 http://192.168.1.89:8787',
-      );
-    }
+  Future<void> configure({required bool useDemo}) async {
     ++_generation;
     _service.close();
-    baseUrl = address.trim().replaceFirst(RegExp(r'/+$'), '');
     demo = useDemo;
     _service = _makeService();
     snapshot = null;
     if (useDemo) symbol = '510300';
-    await preferences.setString('baseUrl', baseUrl);
     await load();
-  }
-
-  Future<Json> deliver(String channel) async {
-    final current = snapshot;
-    final prediction = forecast;
-    if (current == null || prediction == null) {
-      throw const MarketException('请先加载行情');
-    }
-    final receipt = prediction.isOnDevice
-        ? deviceReceipt(current, prediction, confidence, channel)
-        : await _service.deliver(current, prediction, confidence, channel);
-    deliveries.insert(0, receipt);
-    await preferences.setString('deliveries', jsonEncode(deliveries));
-    if (!_disposed) notifyListeners();
-    return receipt;
   }
 
   @override
@@ -233,7 +170,6 @@ class MarketController extends ChangeNotifier {
     _disposed = true;
     _service.close();
     requestLog.dispose();
-    deviceModel.dispose();
     super.dispose();
   }
 }

@@ -5,25 +5,15 @@ import 'package:flutter/material.dart';
 import 'models.dart';
 import 'theme.dart';
 
-class ForecastChart extends StatefulWidget {
-  const ForecastChart({
-    super.key,
-    required this.snapshot,
-    required this.forecast,
-    required this.confidence,
-    this.historicalOnly = false,
-    this.height = 230,
-  });
+class HistoryChart extends StatefulWidget {
+  const HistoryChart({super.key, required this.snapshot, this.height = 230});
   final MarketSnapshot snapshot;
-  final Forecast forecast;
-  final int confidence;
-  final bool historicalOnly;
   final double height;
   @override
-  State<ForecastChart> createState() => _ForecastChartState();
+  State<HistoryChart> createState() => _HistoryChartState();
 }
 
-class _ForecastChartState extends State<ForecastChart> {
+class _HistoryChartState extends State<HistoryChart> {
   double? selected;
   @override
   Widget build(BuildContext context) {
@@ -31,37 +21,22 @@ class _ForecastChartState extends State<ForecastChart> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = math.max(constraints.maxWidth - 54, 1.0);
-        final split = widget.historicalOnly ? width : width * .49;
+        final split = width;
         String? date;
         String? value;
         if (selected != null) {
-          if (selected! <= split || widget.historicalOnly) {
-            final index =
-                (selected! / split * (widget.snapshot.history.length - 1))
-                    .round()
-                    .clamp(0, widget.snapshot.history.length - 1);
-            final point = widget.snapshot.history[index];
-            date = '${point.date} · 历史';
-            value = widget.snapshot.asset.format(point.close);
-          } else {
-            final index =
-                ((selected! - split) /
-                            (width - split) *
-                            widget.forecast.points.length -
-                        1)
-                    .round()
-                    .clamp(0, widget.forecast.points.length - 1);
-            final point = widget.forecast.points[index];
-            date = '${point.date} · ${widget.forecast.sourceLabel}';
-            value =
-                '${widget.snapshot.asset.format(point.lower(widget.confidence))} – ${widget.snapshot.asset.format(point.upper(widget.confidence))}';
-          }
+          final index =
+              (selected! / split * (widget.snapshot.history.length - 1))
+                  .round()
+                  .clamp(0, widget.snapshot.history.length - 1);
+          final point = widget.snapshot.history[index];
+          date = '${point.date} · 历史';
+          value = widget.snapshot.asset.format(point.close);
         }
         void select(Offset position) =>
             setState(() => selected = position.dx.clamp(0, width));
         return Semantics(
-          label:
-              '${widget.snapshot.asset.name}历史走势${widget.historicalOnly ? '' : '与未来${widget.forecast.horizon}日${widget.forecast.sourceLabel}，${widget.confidence}%期末区间${widget.snapshot.asset.format(widget.forecast.last.lower(widget.confidence))}至${widget.snapshot.asset.format(widget.forecast.last.upper(widget.confidence))}'}',
+          label: '${widget.snapshot.asset.name}历史走势',
           child: MouseRegion(
             cursor: SystemMouseCursors.precise,
             onHover: (event) => select(event.localPosition),
@@ -83,9 +58,6 @@ class _ForecastChartState extends State<ForecastChart> {
                       child: CustomPaint(
                         painter: _ChartPainter(
                           snapshot: widget.snapshot,
-                          forecast: widget.forecast,
-                          confidence: widget.confidence,
-                          historicalOnly: widget.historicalOnly,
                           colors: colors,
                           selected: selected,
                         ),
@@ -141,18 +113,8 @@ class _ForecastChartState extends State<ForecastChart> {
 }
 
 class _ChartPainter extends CustomPainter {
-  _ChartPainter({
-    required this.snapshot,
-    required this.forecast,
-    required this.confidence,
-    required this.historicalOnly,
-    required this.colors,
-    this.selected,
-  });
+  _ChartPainter({required this.snapshot, required this.colors, this.selected});
   final MarketSnapshot snapshot;
-  final Forecast forecast;
-  final int confidence;
-  final bool historicalOnly;
   final MarketColors colors;
   final double? selected;
 
@@ -161,14 +123,8 @@ class _ChartPainter extends CustomPainter {
     final width = math.max(1.0, size.width - 54);
     final height = math.max(1.0, size.height - 54);
     const top = 26.0;
-    final split = historicalOnly ? width : width * .49;
-    final values = [
-      ...snapshot.history.map((point) => point.close),
-      if (!historicalOnly)
-        ...forecast.points.expand(
-          (point) => [point.lower(confidence), point.upper(confidence)],
-        ),
-    ];
+    final split = width;
+    final values = [...snapshot.history.map((point) => point.close)];
     final low = values.reduce(math.min);
     final high = values.reduce(math.max);
     final padding = math.max((high - low) * .15, .001);
@@ -222,52 +178,6 @@ class _ChartPainter extends CustomPainter {
       );
     }
     final current = Offset(split, ordinate(snapshot.asset.price));
-    List<Offset> future(String key) => [
-      current,
-      ...forecast.points.indexed.map(
-        (entry) => Offset(
-          split + (width - split) * (entry.$1 + 1) / forecast.points.length,
-          ordinate(entry.$2.value(key)),
-        ),
-      ),
-    ];
-    if (!historicalOnly) {
-      final outerUpper = future(confidence == 95 ? 'p975' : 'p90');
-      final outerLower = future(confidence == 95 ? 'p025' : 'p10');
-      final area = band(outerUpper, outerLower);
-      canvas.drawPath(
-        area,
-        Paint()
-          ..shader = LinearGradient(
-            colors: [
-              colors.orange.withValues(alpha: .05),
-              colors.orange.withValues(alpha: .22),
-            ],
-          ).createShader(Rect.fromLTRB(split, top, width, height + top)),
-      );
-      canvas.drawPath(
-        band(future('p75'), future('p25')),
-        Paint()..color = colors.orange.withValues(alpha: .16),
-      );
-      dashed(canvas, path(outerUpper), colors.orange.withValues(alpha: .5), .9);
-      dashed(canvas, path(outerLower), colors.orange.withValues(alpha: .5), .9);
-      dashed(canvas, path(future('p50')), colors.orange, 2);
-      dashed(
-        canvas,
-        Path()
-          ..moveTo(split, 20)
-          ..lineTo(split, height + top),
-        colors.secondary.withValues(alpha: .45),
-        .8,
-      );
-      label('预测区间', Offset(split + (width - split) / 2 - 20, 2), colors.orange);
-      label(
-        '当前',
-        Offset(split - 10, height + top + 10),
-        colors.secondary,
-        fontSize: 9,
-      );
-    }
     final history = snapshot.history.indexed
         .map(
           (entry) => Offset(
@@ -293,9 +203,7 @@ class _ChartPainter extends CustomPainter {
       colors.secondary,
     );
     label(
-      shortDate(
-        historicalOnly ? snapshot.history.last.date : forecast.last.date,
-      ),
+      shortDate(snapshot.history.last.date),
       Offset(width, height + top + 10),
       colors.secondary,
       alignRight: true,
@@ -313,8 +221,6 @@ class _ChartPainter extends CustomPainter {
   }
 
   Path path(List<Offset> points) => Path()..addPolygon(points, false);
-  Path band(List<Offset> upper, List<Offset> lower) =>
-      Path()..addPolygon([...upper, ...lower.reversed], true);
   void dashed(Canvas canvas, Path path, Color color, double width) {
     final paint = Paint()
       ..color = color
@@ -333,9 +239,6 @@ class _ChartPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _ChartPainter oldDelegate) =>
       oldDelegate.snapshot != snapshot ||
-      oldDelegate.forecast != forecast ||
-      oldDelegate.confidence != confidence ||
       oldDelegate.selected != selected ||
-      oldDelegate.historicalOnly != historicalOnly ||
       oldDelegate.colors.dark != colors.dark;
 }

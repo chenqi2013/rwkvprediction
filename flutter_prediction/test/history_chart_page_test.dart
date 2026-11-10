@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:rwkv_prediction/forecast_chart.dart';
+import 'package:rwkv_prediction/history_chart.dart';
 import 'package:rwkv_prediction/history_chart_page.dart';
 import 'package:rwkv_prediction/main.dart';
 import 'package:rwkv_prediction/market_controller.dart';
@@ -38,9 +38,9 @@ void main() {
       await tester.pumpAndSettle();
       final chart = find.descendant(
         of: find.byType(HistoryChartPage),
-        matching: find.byType(ForecastChart),
+        matching: find.byType(HistoryChart),
       );
-      expect(tester.widget<ForecastChart>(chart).snapshot, same(snapshot));
+      expect(tester.widget<HistoryChart>(chart).snapshot, same(snapshot));
       expect(tester.getSize(chart).width, greaterThan(1400));
       expect(tester.getSize(chart).height, greaterThan(800));
       final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
@@ -105,10 +105,9 @@ void main() {
         expect(tester.widget<RotatedBox>(rotated).quarterTurns, 1);
         final chart = find.descendant(
           of: find.byType(HistoryChartPage),
-          matching: find.byType(ForecastChart),
+          matching: find.byType(HistoryChart),
         );
-        expect(tester.widget<ForecastChart>(chart).snapshot, same(snapshot));
-        expect(tester.widget<ForecastChart>(chart).historicalOnly, isTrue);
+        expect(tester.widget<HistoryChart>(chart).snapshot, same(snapshot));
         expect(
           tester.getSize(chart).width,
           greaterThan(tester.getSize(chart).height),
@@ -166,16 +165,12 @@ void main() {
             padding: EdgeInsets.only(top: 44, bottom: 34),
             textScaler: TextScaler.linear(1.5),
           ),
-          child: HistoryChartPage(
-            snapshot: snapshot!,
-            forecast: snapshot.predictions[20]!,
-            confidence: 80,
-          ),
+          child: HistoryChartPage(snapshot: snapshot!),
         ),
       ),
     );
     await tester.pumpAndSettle();
-    final chartSize = tester.getSize(find.byType(ForecastChart));
+    final chartSize = tester.getSize(find.byType(HistoryChart));
     expect(chartSize.width, greaterThan(chartSize.height));
     expect(chartSize.height, greaterThan(150));
     expect(find.byTooltip('退出横屏'), findsOneWidget);

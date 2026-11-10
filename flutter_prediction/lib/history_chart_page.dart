@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'forecast_chart.dart';
+import 'history_chart.dart';
 import 'models.dart';
 import 'theme.dart';
 
@@ -12,16 +12,9 @@ bool usesMobileHistoryLayout(BuildContext context) =>
     };
 
 class HistoryChartPage extends StatelessWidget {
-  const HistoryChartPage({
-    super.key,
-    required this.snapshot,
-    required this.forecast,
-    required this.confidence,
-  });
+  const HistoryChartPage({super.key, required this.snapshot});
 
   final MarketSnapshot snapshot;
-  final Forecast forecast;
-  final int confidence;
 
   @override
   Widget build(BuildContext context) {
@@ -79,11 +72,8 @@ class HistoryChartPage extends StatelessWidget {
                       ),
                       Expanded(
                         child: LayoutBuilder(
-                          builder: (context, constraints) => ForecastChart(
+                          builder: (context, constraints) => HistoryChart(
                             snapshot: snapshot,
-                            forecast: forecast,
-                            confidence: confidence,
-                            historicalOnly: true,
                             height: constraints.maxHeight,
                           ),
                         ),
