@@ -44,6 +44,10 @@ dependencies:
   share_plus: ^13.3.1
   shared_preferences: ^2.5.4
   url_launcher: ^6.3.2
+  ffi: ^2.2.0
+  native_toolchain_c: ^0.19.2
+  hooks: ^2.0.2
+  code_assets: ^1.2.1
 
 dev_dependencies:
   flutter_test:
@@ -68,6 +72,9 @@ flutter:
   uses-material-design: true
   assets:
     - assets/market-demo.json
+    - assets/rwkv/manifest.json
+    - native/LICENSE-APACHE-2.0
+    - native/THIRD_PARTY_NOTICES.md
 
 hooks:
   user_defines:

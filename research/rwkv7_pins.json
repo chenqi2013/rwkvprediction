@@ -1,0 +1,17 @@
+{
+  "repo": "Caizus/rwkv7-ashare-1min-quantile-21m",
+  "revision": "26fb7031ebb4092329bb79ce3d422283d7a14e3b",
+  "backbone_revision": "f93dd4e01e0b565ef0390f76c6726d1d121ebbab",
+  "sha256": {
+    "config.json": "30c3ed60fc88a810e6a37961513a07175f4f14497926a558cdf447b667f1d8c9",
+    "model.safetensors.index.json": "6fdf0e87ae5cb12d919c493c55526ec50d334e5cd672deff292cd9904b2808d1",
+    "example_bars.csv": "ce1591f6d41574b001e0d57c5d55d1b70b071545981b3f2d6a86ed4a130df062",
+    "example_inputs.npz": "6add3d0074a831f9214acb075c3448b3fadcb2f923a30882a185410e910e2292",
+    "model-00001-of-00006.safetensors": "a89a51f66fe1dfd8ca1e0546acd91c614256555131a9ff7fbf4d9aee2dc4cd23",
+    "model-00002-of-00006.safetensors": "7177d906062cbf82ad8ccc71d085254a573ce32769eae8c67788b4bce0eb4ca2",
+    "model-00003-of-00006.safetensors": "a648bfa1822e466c71878e5b404c1b6b363b7bd8ac8264a490db650bbaa9ee06",
+    "model-00004-of-00006.safetensors": "bc700b9754ae570fedbc71fe05bff5aa5985b2f47825b0c9cf0f5751d457d32a",
+    "model-00005-of-00006.safetensors": "1f4a6c24de2a5728067c2b561482feffa3184d428412d671fcdec81a76983304",
+    "model-00006-of-00006.safetensors": "353ccbbf32abb80b581221ed73369218289ab0f5553d6106913a460bbe776f14"
+  }
+}

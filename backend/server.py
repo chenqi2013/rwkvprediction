@@ -15,6 +15,7 @@ from urllib.parse import urlparse, parse_qs, unquote
 from market_provider import MarketProvider, MarketUnavailable
 from instrument_catalog import InstrumentCatalog, CatalogUnavailable, instrument
 from forecast_engine import ForecastUnavailable, configured_engine
+from minute_market import MinuteMarket
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / 'rwkvprediction/rwkvprediction/Resources/market-demo.json'
@@ -26,6 +27,7 @@ def payload():
 
 
 PROVIDER = MarketProvider(payload())
+MINUTES = MinuteMarket()
 
 
 @contextmanager
@@ -138,6 +140,19 @@ class Handler(BaseHTTPRequestHandler):
             if len(query) > 80 or not 1 <= limit <= 100 or not 0 <= offset <= 100000:
                 raise ValueError('Invalid search parameters')
             return self.send_json(200, PROVIDER.search(query, kind, limit, offset))
+        if path.startswith('/v1/minute-markets/'):
+            if PROVIDER.mode != 'live':
+                raise ValueError('分钟行情需要真实行情模式，离线演示不生成分钟数据')
+            identity = unquote(path.rsplit('/', 1)[-1])
+            parameters = parse_qs(urlparse(self.path).query)
+            if any(key not in ('date', 'at', 'include_market') for key in parameters) or any(len(values) != 1 for values in parameters.values()):
+                raise ValueError('Invalid minute parameters')
+            include_market = parameters.get('include_market', ['0'])[0]
+            if include_market not in ('0', '1'):
+                raise ValueError('include_market must be 0 or 1')
+            return self.send_json(200, MINUTES.snapshot(PROVIDER.metadata(identity),
+                                  day=parameters.get('date', [None])[0], at=parameters.get('at', [None])[0],
+                                  include_market=include_market == '1'))
         if path.startswith('/v1/markets/'):
             symbol = unquote(path.rsplit('/', 1)[-1])
             if parse_qs(urlparse(self.path).query).get('inference') == ['device']:

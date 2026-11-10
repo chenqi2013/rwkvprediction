@@ -1,5 +1,7 @@
 # 金融走势模型评估
 
+同事提供的 RWKV7 A 股分钟模型已完成 Mac CPU 适配原型试跑，详见 [RWKV7 分钟预测接入核查](RWKV7.md)。它预测未来 1～30 分钟，需要独立分钟数据，尚未接入 App，也未完成与官方 CUDA 输出的数值对齐，不加入下述日线比较表。
+
 这里是离线研究工具，不是行情后端，也不提供模型HTTP服务。Kronos与Chronos-2在运行评估的当前电脑本地通过PyTorch推理；Qwen调用现有Flutter客户端的`LlamaDeviceRuntime`，不经过Ollama。当前App模型保持Qwen，Kronos与Chronos-2尚未接入Android／Windows客户端。
 
 已完成的本地初筛见 [2026-11-03实测报告](../docs/financial-model-evaluation-2026-11-03.md)，包含逐条结果与环境版本。

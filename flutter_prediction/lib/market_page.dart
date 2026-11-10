@@ -5,6 +5,7 @@ import 'history_chart_page.dart';
 import 'device_model_page.dart';
 import 'market_controller.dart';
 import 'models.dart';
+import 'minute_market_page.dart';
 import 'sheets.dart';
 import 'theme.dart';
 
@@ -46,6 +47,14 @@ class _MarketPageState extends State<MarketPage> with WidgetsBindingObserver {
   void show(Widget child) => showMarketSheet(context, child);
   void assets({bool favoritesOnly = false}) =>
       show(AssetPicker(controller: model, favoritesOnly: favoritesOnly));
+  void minutes() => Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => MinuteMarketPage(
+        controller: model,
+        instrument: model.snapshot?.asset ?? model.assets.first,
+      ),
+    ),
+  );
   void setSection(int value) {
     setState(() => section = value);
     if (scrollController.hasClients) scrollController.jumpTo(0);
@@ -176,6 +185,12 @@ class _MarketPageState extends State<MarketPage> with WidgetsBindingObserver {
                 ),
               ),
             ),
+          ),
+          IconButton(
+            key: const ValueKey('minute-market-entry'),
+            tooltip: '分钟行情',
+            onPressed: minutes,
+            icon: const Icon(Icons.timeline, size: 22),
           ),
           IconButton(
             tooltip: '下发记录',
@@ -355,6 +370,7 @@ class _MarketPageState extends State<MarketPage> with WidgetsBindingObserver {
               ),
               child: const Text('下载或试跑端侧模型'),
             ),
+            TextButton(onPressed: minutes, child: const Text('查看分钟行情（无需模型）')),
             TextButton(
               onPressed: () => show(SettingsSheet(controller: model)),
               child: const Text('设置行情服务地址'),

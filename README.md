@@ -36,7 +36,9 @@ python3 -m pip install -r backend/requirements.txt
 python3 backend/server.py --host 0.0.0.0 --port 8787
 ```
 
-建议在 Python 3.10+ 的虚拟环境中安装；Windows 可将 `python3` 替换为 `python`。后端默认 `--mode live`，使用 AKShare 从东方财富获取不复权日线。采用北京时间最近完整交易日数据：15:10 前排除当日未完成日线，之后允许当日日线。**当前不是盘中实时行情**。服务器每个标的缓存 5 分钟；下拉刷新会读取缓存到期后的新数据。
+建议在 Python 3.10+ 的虚拟环境中安装；Windows 可将 `python3` 替换为 `python`。后端默认 `--mode live`，日线使用 AKShare 从东方财富获取不复权数据。采用北京时间最近完整交易日数据：15:10 前排除当日未完成日线，之后允许当日日线。日线不是盘中实时行情，每个标的缓存 5 分钟。
+
+Flutter 顶部折线图按钮新增「分钟行情」，无需下载模型即可查看股票／ETF／指数的一分钟历史走势、OHLC 与成交量，支持交易日选择、拖动／鼠标悬停和下拉刷新。分钟数据优先来自新浪，缓存 20 秒，保守排除当前未完成分钟；页面显示实际数据截止时间。沪深股票可加载固定实验集合的同期市场统计，并使用独立 C++ CPU 运行库在本设备运行 RWKV7 21M，展示未来 30 分钟中位数、60%／80% 区间和历史对照。此功能为实验版，训练统计集合、官方 CUDA 数值与覆盖率仍待核对。使用方式见 [端侧 RWKV 说明](flutter_prediction/RWKV_MINUTE.md)，接口口径见 [分钟行情文档](backend/MINUTE_MARKET.md)。
 
 ### iPhone 真机连接
 

@@ -1,0 +1,14 @@
+{
+  "id": "ashare-minute-experiment-v1",
+  "description": "固定实验集合，用于验证跨股票分钟统计流程。不是模型训练全集，不是全市场指数，不根据请求标的或未来行情动态变更。",
+  "instruments": [
+    {"symbol": "600519", "name": "贵州茅台"},
+    {"symbol": "600036", "name": "招商银行"},
+    {"symbol": "601318", "name": "中国平安"},
+    {"symbol": "600900", "name": "长江电力"},
+    {"symbol": "000001", "name": "平安银行"},
+    {"symbol": "000333", "name": "美的集团"},
+    {"symbol": "002594", "name": "比亚迪"},
+    {"symbol": "300750", "name": "宁德时代"}
+  ]
+}

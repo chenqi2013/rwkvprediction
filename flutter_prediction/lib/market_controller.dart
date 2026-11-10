@@ -8,6 +8,7 @@ import 'device_model.dart';
 import 'device_forecast.dart';
 import 'market_service.dart';
 import 'models.dart';
+import 'minute_models.dart';
 
 class MarketController extends ChangeNotifier {
   MarketController(
@@ -144,6 +145,12 @@ class MarketController extends ChangeNotifier {
     String? kind,
     int offset = 0,
   }) => _service.search(query, kind: kind, offset: offset);
+
+  Future<MinuteSnapshot> minutes(
+    String identity, {
+    String? date,
+    bool includeMarket = false,
+  }) => _service.minutes(identity, date: date, includeMarket: includeMarket);
 
   Future<void> setDark(bool value) async {
     dark = value;

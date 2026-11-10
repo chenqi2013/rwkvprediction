@@ -8,6 +8,7 @@ import 'api_request_log.dart';
 import 'device_forecast.dart';
 import 'device_model.dart';
 import 'models.dart';
+import 'minute_models.dart';
 
 class MarketException implements Exception {
   const MarketException(this.message);
@@ -17,6 +18,11 @@ class MarketException implements Exception {
 }
 
 abstract class MarketService {
+  Future<MinuteSnapshot> minutes(
+    String identity, {
+    String? date,
+    bool includeMarket = false,
+  }) async => throw const MarketException('分钟行情需要真实行情服务，请在设置中关闭离线演示。');
   Future<List<MarketAsset>> assets();
   Future<InstrumentSearch> search(String query, {String? kind, int offset = 0});
   Future<MarketSnapshot> snapshot(String symbol);
@@ -115,6 +121,22 @@ class HttpMarketService extends MarketService {
             '实际 HTTP 请求与响应。行情来源以响应 source 为准；inference=device 仅请求行情，模型推理在本设备完成。离线演示不产生 HTTP 记录。',
       });
     }
+  }
+
+  @override
+  Future<MinuteSnapshot> minutes(
+    String identity, {
+    String? date,
+    bool includeMarket = false,
+  }) async {
+    final path = Uri(
+      path: 'v1/minute-markets/$identity',
+      queryParameters: {
+        'date': ?date,
+        if (includeMarket) 'include_market': '1',
+      },
+    );
+    return MinuteSnapshot(Json.from(await request(path.toString())));
   }
 
   @override
